@@ -83,6 +83,7 @@ const state = {
   cineFilter: { year: '', month: '' },
   posterUrls: new Map(),
   lastExport: null,
+  tmdb: '',
 };
 
 async function loadAll() {
@@ -94,6 +95,7 @@ async function loadAll() {
   }
   state.refs = refs;
   state.lastExport = await DB.get('kv', 'lastExport');
+  state.tmdb = (await DB.get('kv', 'tmdb')) || '';
 }
 const saveRefs = () => DB.put('kv', state.refs, 'refs');
 
@@ -359,8 +361,10 @@ function cineYears() {
   ys.add(today().slice(0, 4));
   return [...ys].sort().reverse();
 }
-function seenFilter(year, month) {
-  return state.items.filter(i => i.cat === 'cinema' && i.list === 'vu' &&
+const placeOf = i => i.place || 'cinema';
+const PLACES = { cinema: '🎟️ Cinéma', maison: '🏠 Maison' };
+function seenFilter(year, month, place) {
+  return state.items.filter(i => i.cat === 'cinema' && i.list === 'vu' && (!place || placeOf(i) === place) &&
     (!year || (i.seenDate || '').slice(0, 4) === year) &&
     (!month || (i.seenDate || '').slice(5, 7) === month));
 }
@@ -374,20 +378,33 @@ function viewCinema() {
         <select class="inp" id="cy"><option value="">Toutes les années</option>${cineYears().map(y => `<option ${f.year === y ? 'selected' : ''}>${y}</option>`).join('')}</select>
         <select class="inp" id="cm" ${f.year ? '' : 'disabled'}><option value="">Tous les mois</option>${monthOpts(f.month)}</select>
       </div>
-      <a class="btn primary block" href="#/cinema/image">🖼️ Créer l'image des affiches</a></div>
+      <div class="seg" id="cp">${[['', 'Tous'], ['cinema', 'Cinéma'], ['maison', 'Maison']].map(([k, l]) => `<button type="button" data-p="${k}" class="${(f.place || '') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <a class="btn primary block" href="#/cinema/image">🖼️ Créer l'image des affiches</a>
+      <label class="btn ghost block">📥 Importer depuis Letterboxd<input type="file" accept=".csv,text/csv" id="lbf" hidden></label>
+      ${state.tmdb ? '<button class="btn ghost block" id="mp">🔎 Récupérer les affiches manquantes</button>' : ''}</div>
       <div id="res"></div>`,
   });
   const draw = () => {
-    const list = seenFilter(f.year, f.month).sort((a, b) => (b.seenDate || '').localeCompare(a.seenDate || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const list = seenFilter(f.year, f.month, f.place).sort((a, b) => (b.seenDate || '').localeCompare(a.seenDate || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
     $('#res').innerHTML = `<p class="count">${list.length} film${list.length > 1 ? 's' : ''}</p>` + (list.length ? `<div class="rows">${list.map(i => `
       <a class="row cine" href="#/fiche/${i.id}">
         <span class="thumb" data-poster="${i.id}"></span>
-        <span class="rt">${esc(i.title)}<small>${fmtDate(i.seenDate)}</small>${starsHtml(i.rating, 'sm')}</span>
+        <span class="rt">${esc(i.title)}<small>${fmtDate(i.seenDate)} · ${PLACES[placeOf(i)]}</small>${starsHtml(i.rating, 'sm')}</span>
       </a>`).join('')}</div>` : '<p class="empty">Aucun film sur cette période.</p>');
     $$('[data-poster]').forEach(async el => { const u = await posterUrl(el.dataset.poster); if (u) el.style.backgroundImage = `url("${u}")`; else el.textContent = '🎬'; });
   };
   $('#cy').addEventListener('change', e => { f.year = e.target.value; if (!f.year) f.month = ''; $('#cm').disabled = !f.year; if (!f.year) $('#cm').value = ''; draw(); });
   $('#cm').addEventListener('change', e => { f.month = e.target.value; draw(); });
+  $('#cp').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; f.place = b.dataset.p; $$('#cp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  if ($('#mp')) $('#mp').onclick = async () => {
+    const todo = [];
+    for (const i of seenFilter()) if (!(await DB.get('posters', i.id))) todo.push(i);
+    if (!todo.length) { alertBox('Tous les films ont déjà une affiche.'); return; }
+    const r = await fetchPosters(todo);
+    await modal({ title: 'Affiches', text: `${r.posters} trouvée${r.posters > 1 ? 's' : ''} sur ${todo.length}.${r.offline ? '\nTMDB inaccessible : vérifie ta connexion.' : ''}`, cancel: null });
+    draw();
+  };
+  $('#lbf').addEventListener('change', async e => { const fl = e.target.files[0]; e.target.value = ''; if (fl) { await importLetterboxd(fl); viewCinema(); } });
   draw();
 }
 
@@ -400,6 +417,8 @@ async function viewDetail(id) {
   if (it.list === 'vu') {
     h += `<div class="poster-big" id="pb"></div>`;
     h += row('Vu le', esc(fmtDate(it.seenDate)));
+    h += row('Lieu', PLACES[placeOf(it)]);
+    if (it.year) h += row('Année de sortie', esc(it.year));
     h += row('Note', `${starsHtml(it.rating)} <span class="muted">${fmtRating(it.rating)}</span>`);
     if (it.genres?.length) h += row('Genres', chips(it.genres));
   } else if (it.list === 'envie') {
@@ -428,7 +447,7 @@ async function viewDetail(id) {
   }
   const blBtn = it.cat === 'jeu' && it.list === 'possede' ? `<button class="btn ghost block" id="bl">${it.backlog ? '➖ Retirer du backlog' : '🕹️ Ajouter au backlog'}</button>` : '';
   const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '';
-  const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Envie · ' + CATS[it.cat].short : 'Vu au cinéma';
+  const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Envie · ' + CATS[it.cat].short : 'Film vu';
   page({
     title: '', back: backOf(it),
     right: `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
@@ -461,7 +480,7 @@ async function viewForm(existing, convert, listArg, catArg) {
   if (target === 'vu' && !it.seenDate) it.seenDate = today();
 
   const title = convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter à ma collection')
-    : (isNew ? (target === 'envie' ? 'Nouvelle envie' : target === 'vu' ? 'Film vu au cinéma' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
+    : (isNew ? (target === 'envie' ? 'Nouvelle envie' : target === 'vu' ? 'Film vu' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
 
   const field = (label, inner, req = false) => `<label class="fld"><span class="lbl">${label}${req ? ' <b>*</b>' : ''}</span>${inner}</label>`;
   const opt = (arr, cur) => arr.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('');
@@ -470,9 +489,12 @@ async function viewForm(existing, convert, listArg, catArg) {
 
   if (target === 'vu') {
     h += field('Date de visionnage', `<input class="inp" type="date" name="seenDate" value="${esc(it.seenDate)}">`, true);
+    h += `<div class="fld"><span class="lbl">Lieu</span><div class="seg two" id="pl">${Object.entries(PLACES).map(([k, l]) => `<button type="button" data-p="${k}" class="${placeOf(it) === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+    h += field('Année de sortie', `<input class="inp" type="number" inputmode="numeric" name="year" min="1890" max="2100" placeholder="Facultatif, aide à trouver l'affiche" value="${esc(it.year)}">`);
     h += `<div class="fld"><span class="lbl">Note</span><div class="rate">${starsHtml(rating, 'lg')}<span class="muted" id="rv">${fmtRating(rating)}</span><button type="button" class="link" id="rclr">Effacer</button></div></div>`;
     h += `<div class="fld"><span class="lbl">Affiche</span><div class="poster-edit"><div class="poster-prev" id="pp"></div>
       <div class="pbtns"><label class="btn ghost">Choisir une image<input type="file" accept="image/*" id="pf" hidden></label>
+      ${state.tmdb ? '<button type="button" class="btn ghost" id="ptm">🔎 Chercher sur TMDB</button>' : ''}
       <button type="button" class="btn danger-ghost" id="prm">Retirer</button></div></div></div>`;
   }
   if (target !== 'envie' && hasGenre(cat)) {
@@ -583,7 +605,19 @@ async function viewForm(existing, convert, listArg, catArg) {
       try { poster = await resizeImage(f); show(URL.createObjectURL(poster)); } catch (err) { alertBox("Impossible de lire l'image."); }
     });
     $('#prm').onclick = () => { poster = null; show(null); };
+    if ($('#ptm')) $('#ptm').onclick = async () => {
+      const t = frm.elements.title.value.trim(); if (!t) { alertBox("Saisis d'abord le titre."); return; }
+      $('#ptm').disabled = true; $('#ptm').textContent = 'Recherche…';
+      try {
+        const r = await TMDB.find(t, frm.elements.year.value.trim());
+        if (!r) { alertBox('Aucune affiche trouvée sur TMDB pour ce titre.'); }
+        else { poster = r.blob; show(URL.createObjectURL(poster)); if (r.year && !frm.elements.year.value) frm.elements.year.value = r.year; if (!genres.size && r.genres.length) { r.genres.forEach(g => genres.add(g)); genrePicker($('#gp'), cat, genres); } }
+      } catch (err) { alertBox('TMDB inaccessible (connexion internet ?)'); }
+      $('#ptm').disabled = false; $('#ptm').textContent = '🔎 Chercher sur TMDB';
+    };
   }
+  let place = placeOf(it);
+  if ($('#pl')) $('#pl').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; place = b.dataset.p; $$('#pl button').forEach(x => x.classList.toggle('on', x === b)); });
 
   frm.addEventListener('submit', async e => {
     e.preventDefault();
@@ -611,7 +645,17 @@ async function viewForm(existing, convert, listArg, catArg) {
     if (hasSupport(cat)) it.support = val('support');
     if ($('#gp')) it.genres = [...genres].sort(coll.compare);
     if (target === 'envie') it.release = release;
-    if (target === 'vu') { it.seenDate = val('seenDate'); it.rating = rating; }
+    if (target === 'vu') {
+      it.seenDate = val('seenDate'); it.rating = rating; it.place = place; it.year = val('year');
+      // Affiche automatique pour un nouveau film sans affiche
+      if (poster === undefined && (isNew || convert) && state.tmdb && !(await DB.get('posters', it.id))) {
+        toast("Recherche de l'affiche…");
+        try {
+          const r = await TMDB.find(it.title, it.year);
+          if (r) { poster = r.blob; if (!it.year) it.year = r.year; if (!genres.size && r.genres.length) it.genres = r.genres; }
+        } catch (err) { /* hors ligne : on enregistre sans affiche */ }
+      }
+    }
     if (target === 'possede') {
       for (const k of ['acquired', 'location', 'loanedTo', 'loanDate']) it[k] = val(k);
       if (cat === 'film') it.duration = val('duration') ? +val('duration') : '';
@@ -745,6 +789,7 @@ function viewImage() {
     body: `<div class="form">
       <label class="fld"><span class="lbl">Année <b>*</b></span><select class="inp" id="iy">${ys.map(y => `<option ${(f.year || ys[0]) === y ? 'selected' : ''}>${y}</option>`).join('')}</select></label>
       <label class="fld"><span class="lbl">Mois</span><select class="inp" id="im"><option value="">Toute l'année</option>${monthOpts(f.month)}</select></label>
+      <label class="fld"><span class="lbl">Lieu</span><select class="inp" id="ip"><option value="">Cinéma et maison</option>${Object.entries(PLACES).map(([k, l]) => `<option value="${k}" ${f.place === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="fld check"><input type="checkbox" id="is" checked> <span>Afficher les étoiles</span></label>
       <button class="btn primary block" id="gen">Générer l'image</button>
       <div id="out"></div></div>`,
@@ -752,7 +797,7 @@ function viewImage() {
   let file = null;
   $('#gen').onclick = async () => {
     const y = $('#iy').value, m = $('#im').value;
-    const films = seenFilter(y, m).sort((a, b) => (a.seenDate || '').localeCompare(b.seenDate || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const films = seenFilter(y, m, $('#ip').value).sort((a, b) => (a.seenDate || '').localeCompare(b.seenDate || '') || (a.createdAt || '').localeCompare(b.createdAt || ''));
     if (!films.length) { $('#out').innerHTML = '<p class="empty">Aucun film vu sur cette période.</p>'; return; }
     $('#out').innerHTML = '<p class="muted">Génération en cours…</p>';
     const blob = await buildRecap(films, $('#is').checked);
@@ -776,6 +821,109 @@ async function shareFile(file, fallbackUrl) {
   document.body.appendChild(a); a.click(); a.remove();
 }
 
+/* ================= TMDB ================= */
+const TMDB_GENRES = { 28: 'Action', 12: 'Aventure', 16: 'Animation', 35: 'Comédie', 80: 'Crime', 99: 'Documentaire', 18: 'Drame', 14: 'Fantastique',
+  36: 'Historique', 27: 'Horreur', 10402: 'Musical', 9648: 'Mystère', 10749: 'Romance', 878: 'Science-fiction', 53: 'Thriller', 10752: 'Guerre', 37: 'Western' };
+const TMDB = {
+  async search(title, year, key) {
+    const p = new URLSearchParams({ query: title, language: 'fr-FR', include_adult: 'false' });
+    if (year) p.set('year', year);
+    const headers = {};
+    if (key.includes('.')) headers.Authorization = 'Bearer ' + key; else p.set('api_key', key);
+    const r = await fetch('https://api.themoviedb.org/3/search/movie?' + p, { headers });
+    if (r.status === 401) throw new Error('clé TMDB refusée');
+    if (!r.ok) throw new Error('TMDB ' + r.status);
+    return ((await r.json()).results || []).find(x => x.poster_path) || null;
+  },
+  // Renvoie { blob, year, genres, title } ou null ; lève une erreur si TMDB est inaccessible
+  async find(title, year, key = state.tmdb, noImage = false) {
+    if (!key) return null;
+    let m = await this.search(title, year, key);
+    if (!m && year) m = await this.search(title, '', key);
+    if (!m) return null;
+    const res = { title: m.title, year: (m.release_date || '').slice(0, 4), genres: [...new Set((m.genre_ids || []).map(g => TMDB_GENRES[g]).filter(Boolean))] };
+    if (noImage) return res;
+    const ir = await fetch('https://image.tmdb.org/t/p/w500' + m.poster_path);
+    if (!ir.ok) throw new Error('image ' + ir.status);
+    res.blob = await resizeImage(await ir.blob());
+    return res;
+  },
+};
+
+/* ================= Import Letterboxd ================= */
+async function fetchPosters(list) {
+  let posters = 0, missing = 0, offline = false;
+  const pg = progressBox('Téléchargement des affiches…');
+  for (let k = 0; k < list.length; k++) {
+    const it = list[k];
+    pg.set(`Affiches : ${k + 1} / ${list.length}\n${it.title}`);
+    try {
+      const r = await TMDB.find(it.title, it.year);
+      if (r) {
+        await DB.put('posters', r.blob, it.id); dropPosterUrl(it.id);
+        if (!it.year) it.year = r.year;
+        if (!(it.genres || []).length && r.genres.length) it.genres = r.genres;
+        await saveItem(it); posters++;
+      } else missing++;
+    } catch (err) { offline = true; missing += list.length - k; break; }
+  }
+  pg.close();
+  return { posters, missing, offline };
+}
+function parseCSV(text) {
+  const rows = []; let row = [], f = '', q = false;
+  text = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim()));
+}
+function progressBox(text) {
+  const el = document.createElement('div');
+  el.className = 'modal-back';
+  el.innerHTML = `<div class="modal"><p id="pgt">${esc(text)}</p></div>`;
+  document.body.appendChild(el);
+  return { set: t => { $('#pgt', el).textContent = t; }, close: () => el.remove() };
+}
+async function importLetterboxd(file) {
+  const rows = parseCSV(await file.text());
+  const h = (rows.shift() || []).map(x => x.trim());
+  const col = n => h.indexOf(n);
+  const iName = col('Name'), iWatched = col('Watched Date'), iDate = col('Date'), iRating = col('Rating'), iTags = col('Tags'), iYear = col('Year'), iUri = col('Letterboxd URI');
+  if (iName < 0 || (iWatched < 0 && iDate < 0)) { alertBox("Ce fichier ne ressemble pas au diary.csv de Letterboxd."); return; }
+  const seen = state.items.filter(i => i.cat === 'cinema' && i.list === 'vu');
+  let ignored = 0, dup = 0;
+  const added = [];
+  for (const r of rows) {
+    const title = (r[iName] || '').trim(); if (!title) continue;
+    const tags = (iTags >= 0 ? r[iTags] || '' : '').split(',').map(norm);
+    const place = tags.includes('cinema') ? 'cinema' : tags.includes('maison') ? 'maison' : null;
+    if (!place) { ignored++; continue; }
+    const date = ((iWatched >= 0 && r[iWatched]) || r[iDate] || '').trim();
+    const uri = iUri >= 0 ? (r[iUri] || '').trim() : '';
+    if ([...seen, ...added].some(i => (uri && i.lbUri === uri) || (norm(i.title) === norm(title) && i.seenDate === date))) { dup++; continue; }
+    const rating = Math.round((parseFloat(r[iRating]) || 0) * 2) / 2;
+    const it = { id: uid(), cat: 'cinema', list: 'vu', createdAt: new Date().toISOString(), title, seenDate: date, rating, place,
+      year: iYear >= 0 ? (r[iYear] || '').trim() : '', lbUri: uri, genres: [] };
+    await saveItem(it);
+    added.push(it);
+  }
+  const { posters, missing, offline } = added.length && state.tmdb ? await fetchPosters(added) : { posters: 0, missing: 0, offline: false };
+  const nC = added.filter(i => i.place === 'cinema').length;
+  let msg = `${added.length} film${added.length > 1 ? 's' : ''} ajouté${added.length > 1 ? 's' : ''} (${nC} cinéma, ${added.length - nC} maison).`;
+  if (dup) msg += `\n${dup} déjà présent${dup > 1 ? 's' : ''}, ignoré${dup > 1 ? 's' : ''}.`;
+  if (ignored) msg += `\n${ignored} entrée${ignored > 1 ? 's' : ''} sans tag cinema ou maison, ignorée${ignored > 1 ? 's' : ''}.`;
+  if (added.length) msg += state.tmdb ? `\nAffiches : ${posters} trouvée${posters > 1 ? 's' : ''}${missing ? `, ${missing} manquante${missing > 1 ? 's' : ''}` : ''}.` : '\nAjoute ta clé TMDB dans les Réglages pour récupérer les affiches.';
+  if (offline) msg += '\nTMDB inaccessible : vérifie ta connexion.';
+  await modal({ title: 'Import Letterboxd', text: msg, cancel: null });
+}
+
 /* ================= Réglages ================= */
 function viewSettings() {
   const usage = (kind, name) => state.items.filter(i => (kind === 'genre' ? (i.genres || []).includes(name) : i[kind] === name)).length;
@@ -791,6 +939,11 @@ function viewSettings() {
       <button class="btn primary block" id="exp">📤 Exporter mes données</button>
       <label class="btn ghost block">📥 Importer une sauvegarde<input type="file" accept=".json,application/json" id="imp" hidden></label>
       <p class="muted small">Stockage persistant : <span id="pers">${persisted}</span></p>
+    </section>
+    <section class="card"><h2 class="sec">TMDB (affiches automatiques)</h2>
+      <p class="muted small">Colle ta clé API ou ton jeton d'accès en lecture TMDB. Elle reste uniquement sur cet appareil.</p>
+      <input class="inp" type="password" id="tk" placeholder="Clé API ou jeton TMDB" value="${esc(state.tmdb)}" autocomplete="off">
+      <div class="addrow"><button class="btn primary" id="tks">Enregistrer</button><button class="btn ghost" id="tkt">Tester</button></div>
     </section>
     <section class="card"><h2 class="sec">Supports</h2>
       <div class="refs">${state.refs.supports.map((s, i) => `<div class="ref"><span class="rn">${esc(s.name)}</span><span class="rc">${catChips('support', i, s.cats, SUPPORT_CATS)}</span>${del('support', i, s.name)}</div>`).join('')}</div>
@@ -850,6 +1003,12 @@ function viewSettings() {
   $('#ang').onclick = () => addRef('#ng', '#ngc', 'genre');
   $('#gf').addEventListener('input', e => { const q = norm(e.target.value); $$('#glist .ref').forEach(r => { r.hidden = q && !r.dataset.n.includes(q); }); });
   $('#exp').onclick = exportData;
+  $('#tks').onclick = async () => { state.tmdb = $('#tk').value.trim(); await DB.put('kv', state.tmdb, 'tmdb'); toast(state.tmdb ? 'Clé TMDB enregistrée' : 'Clé TMDB supprimée'); };
+  $('#tkt').onclick = async () => {
+    const k = $('#tk').value.trim(); if (!k) { alertBox('Aucune clé saisie.'); return; }
+    try { const r = await TMDB.find('Le Fabuleux Destin d\'Amélie Poulain', '2001', k, true); alertBox(r ? `Connexion OK : « ${r.title} » trouvé.` : 'Connexion OK.'); }
+    catch (err) { alertBox('Échec : ' + err.message); }
+  };
   $('#imp').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) importData(f); });
 }
 
@@ -897,7 +1056,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '1.3.1';
+const APP_VERSION = '2.0.1';
 (async () => {
   await DB.open();
   await loadAll();

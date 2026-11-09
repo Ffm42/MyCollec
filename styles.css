@@ -166,3 +166,6 @@ input[type=date].inp { min-height: 46px; }
 .row[data-add] { cursor: pointer; }
 .ico-img { height: 30px; width: auto; display: block; }
 .choice .ico-img { height: 20px; }
+.seg.two { grid-template-columns: 1fr 1fr; }
+#pgt { white-space: pre-line; text-align: center; }
+.modal p { white-space: pre-line; }
