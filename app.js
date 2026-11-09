@@ -898,12 +898,20 @@ async function importLetterboxd(file) {
   const iName = col('Name'), iWatched = col('Watched Date'), iDate = col('Date'), iRating = col('Rating'), iTags = col('Tags'), iYear = col('Year'), iUri = col('Letterboxd URI');
   if (iName < 0 || (iWatched < 0 && iDate < 0)) { alertBox("Ce fichier ne ressemble pas au diary.csv de Letterboxd."); return; }
   const seen = state.items.filter(i => i.cat === 'cinema' && i.list === 'vu');
+  const tagOf = r => { const t = (iTags >= 0 ? r[iTags] || '' : '').split(',').map(norm); return t.includes('cinema') ? 'cinema' : t.includes('maison') ? 'maison' : null; };
+  const untagged = rows.filter(r => (r[iName] || '').trim() && !tagOf(r)).length;
+  let fallback = null;
+  if (untagged) {
+    fallback = await chooseBox(`${untagged} entrée${untagged > 1 ? 's' : ''} sur ${rows.length} ${untagged > 1 ? 'n\'ont' : 'n\'a'} pas de tag cinema ou maison. Que faire de ${untagged > 1 ? 'ces films' : 'ce film'} ?`,
+      [['cinema', '🎟️ Les importer en Cinéma', 'primary'], ['maison', '🏠 Les importer en Maison', 'ghost'], ['skip', 'Les ignorer', 'ghost'], ['', 'Annuler l\'import', 'ghost']]);
+    if (!fallback) return;
+    if (fallback === 'skip') fallback = null;
+  }
   let ignored = 0, dup = 0;
   const added = [];
   for (const r of rows) {
     const title = (r[iName] || '').trim(); if (!title) continue;
-    const tags = (iTags >= 0 ? r[iTags] || '' : '').split(',').map(norm);
-    const place = tags.includes('cinema') ? 'cinema' : tags.includes('maison') ? 'maison' : null;
+    const place = tagOf(r) || fallback;
     if (!place) { ignored++; continue; }
     const date = ((iWatched >= 0 && r[iWatched]) || r[iDate] || '').trim();
     const uri = iUri >= 0 ? (r[iUri] || '').trim() : '';
@@ -1056,7 +1064,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.0.2';
 (async () => {
   await DB.open();
   await loadAll();
