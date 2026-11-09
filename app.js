@@ -6,10 +6,11 @@ const CATS = {
   jeu:     { label: 'Mes jeux vidéo',     short: 'Jeux vidéo',      one: 'jeu vidéo',        icon: '🎮' },
   societe: { label: 'Mes jeux de société', short: 'Jeux de société', one: 'jeu de société',  icon: '🎲' },
   livre:   { label: 'Mes livres',         short: 'Livres',          one: 'livre',            icon: '📚' },
+  amiibo:  { label: 'Mes Amiibo',         short: 'Amiibo',          one: 'amiibo',           icon: '🍄' },
   cinema:  { label: 'Mon cinéma',         short: 'Cinéma',          one: 'film au cinéma',   icon: '🎟️' },
 };
-const OWN_CATS = ['film', 'jeu', 'societe', 'livre'];
-const WISH_CATS = ['film', 'jeu', 'societe', 'livre', 'cinema'];
+const OWN_CATS = ['film', 'jeu', 'societe', 'livre', 'amiibo'];
+const WISH_CATS = ['film', 'jeu', 'societe', 'livre', 'amiibo', 'cinema'];
 const SUPPORT_CATS = ['film', 'jeu', 'livre'];          // catégories qui ont un support
 const GENRE_CATS = ['film', 'jeu', 'livre', 'societe']; // le cinéma utilise les genres "film"
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -26,6 +27,7 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 const fmtDate = d => { if (!d) return ''; const [y, m, j] = d.split('-'); return j ? `${j}/${m}/${y}` : y; };
 const gcat = cat => (cat === 'cinema' ? 'film' : cat);
 const hasSupport = cat => SUPPORT_CATS.includes(cat);
+const hasGenre = cat => cat !== 'amiibo';
 const svgStar = '<svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z"/></svg>';
 
 function starsHtml(v, cls = '') {
@@ -127,6 +129,7 @@ function prefix(it) {
   if (it.list !== 'possede') return '';
   if (it.cat === 'jeu') return `[${it.console}-${it.support}]`;
   if (it.cat === 'film') return `[${it.support}]`;
+  if (it.cat === 'amiibo') return `[${it.number}]`;
   return '';
 }
 // Clé de tri des envies : date de sortie connue, sinon date d'enregistrement
@@ -166,6 +169,15 @@ function modal({ title = '', text = '', input = null, ok = 'OK', cancel = 'Annul
       else if (e.target === el && cancel) close(inp ? null : false);
     });
     if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') close(inp.value.trim()); });
+  });
+}
+function chooseBox(text, opts) {
+  return new Promise(res => {
+    const el = document.createElement('div');
+    el.className = 'modal-back';
+    el.innerHTML = `<div class="modal"><p>${esc(text)}</p><div class="modal-col">${opts.map(([k, l, c]) => `<button class="btn ${c}" data-k="${k}">${esc(l)}</button>`).join('')}</div></div>`;
+    document.body.appendChild(el);
+    el.addEventListener('click', e => { const b = e.target.closest('[data-k]'); if (b) { el.remove(); res(b.dataset.k); } });
   });
 }
 const confirmBox = (text, ok = 'Supprimer') => modal({ title: 'Confirmation', text, ok, danger: true });
@@ -252,9 +264,9 @@ function viewList(cat) {
   page({
     title: CATS[cat].label, back: '#/', fab: `#/nouveau/possede/${cat}`,
     body: `<div class="filters">
-        <input class="inp" type="search" placeholder="Rechercher un titre…" data-f="q" value="${esc(f.q)}">
+        <input class="inp" type="search" placeholder="${cat === 'amiibo' ? 'Rechercher un nom ou un numéro…' : 'Rechercher un titre…'}" data-f="q" value="${esc(f.q)}">
         <div class="frow">
-          ${sel('genre', 'Tous genres', usedGenres)}
+          ${hasGenre(cat) ? sel('genre', 'Tous genres', usedGenres) : ''}
           ${hasSupport(cat) ? sel('support', 'Tous supports', supportsFor(cat).map(s => s.name)) : ''}
           ${cat === 'jeu' ? sel('console', 'Toutes consoles', state.refs.consoles) : ''}
         </div>
@@ -264,17 +276,18 @@ function viewList(cat) {
   const draw = () => {
     const q = norm(f.q);
     const list = items.filter(i =>
-      (!q || norm(i.title).includes(q)) &&
+      (!q || norm(i.title).includes(q) || (cat === 'amiibo' && String(i.number) === q)) &&
       (!f.genre || (i.genres || []).includes(f.genre)) &&
       (!f.support || i.support === f.support) &&
       (!f.console || i.console === f.console)
     ).sort((a, b) => coll.compare(a.title, b.title) || coll.compare(prefix(a), prefix(b)));
+    const badge = i => (i.borrowed ? '<span class="badge alt">Emprunté</span>' : i.loaned ? '<span class="badge">Prêté</span>' : '');
     $('#res').innerHTML = `<p class="count">${list.length} ${list.length > 1 ? 'résultats' : 'résultat'}</p>` +
       (list.length ? `<div class="rows">${list.map(i => `
         <a class="row" href="#/fiche/${i.id}">
           <span class="rt">${prefix(i) ? `<span class="pre">${esc(prefix(i))}</span> ` : ''}${esc(i.title)}</span>
           ${cat === 'livre' ? `<span class="rm">${esc(i.support)}</span>` : ''}
-          ${i.loaned ? '<span class="badge">Prêté</span>' : ''}
+          ${badge(i)}
         </a>`).join('')}</div>` : `<p class="empty">Rien à afficher.</p>`);
   };
   $$('[data-f]').forEach(el => el.addEventListener('input', () => { f[el.dataset.f] = el.value; draw(); }));
@@ -291,7 +304,7 @@ function viewWishes(cat) {
       ${list.length ? `<div class="rows">${list.map(i => `
         <a class="row" href="#/fiche/${i.id}">
           <span class="rt">${esc(i.title)}
-            <small>${[cat === 'jeu' ? i.console : '', hasSupport(cat) ? i.support : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
+            <small>${[cat === 'amiibo' ? 'N° ' + i.number : '', cat === 'jeu' ? i.console : '', hasSupport(cat) ? i.support : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
           <span class="rm">${i.release ? fmtDate(i.release) : 'N.C.'}</span>
         </a>`).join('')}</div>` : '<p class="empty">Aucune envie dans cette catégorie.</p>'}`,
   });
@@ -347,17 +360,23 @@ async function viewDetail(id) {
     h += row('Note', `${starsHtml(it.rating)} <span class="muted">${fmtRating(it.rating)}</span>`);
     if (it.genres?.length) h += row('Genres', chips(it.genres));
   } else if (it.list === 'envie') {
+    if (it.cat === 'amiibo') h += row('Numéro', esc(it.number));
     if (it.cat === 'jeu') h += row('Console', esc(it.console));
     if (hasSupport(it.cat)) h += row('Support', esc(it.support));
     h += row('Date de sortie', it.release ? esc(fmtDate(it.release)) : 'N.C.');
   } else {
-    h += row('Genres', chips(it.genres || []));
+    if (it.cat === 'amiibo') h += row('Numéro', esc(it.number));
+    if (hasGenre(it.cat)) h += row('Genres', chips(it.genres || []));
     if (it.cat === 'jeu') h += row('Console', esc(it.console));
     if (hasSupport(it.cat)) h += row('Support', esc(it.support));
     if (it.cat === 'film' && it.duration) h += row('Durée', esc(fmtDuration(it.duration)));
     if (it.cat === 'livre' && it.pages) h += row('Pages', esc(it.pages));
-    if (it.acquired) h += row("Date d'acquisition", esc(fmtDate(it.acquired)));
+    if (it.acquired) h += row(it.cat === 'amiibo' ? "Date d'ajout" : "Date d'acquisition", esc(fmtDate(it.acquired)));
     if (it.location) h += row('Emplacement', esc(it.location));
+    if (it.borrowed) {
+      h += row("On me l'a prêté", 'Oui');
+      if (it.borrowedDate) h += row('Depuis le', esc(fmtDate(it.borrowedDate)));
+    }
     if (it.loaned) {
       h += row('Prêté', 'Oui');
       if (it.loanedTo) h += row('Prêté à', esc(it.loanedTo));
@@ -401,7 +420,8 @@ async function viewForm(existing, convert, listArg, catArg) {
 
   const field = (label, inner, req = false) => `<label class="fld"><span class="lbl">${label}${req ? ' <b>*</b>' : ''}</span>${inner}</label>`;
   const opt = (arr, cur) => arr.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('');
-  let h = field('Titre', `<input class="inp" name="title" value="${esc(it.title)}" autocomplete="off" required>`, true);
+  let h = field(cat === 'amiibo' ? 'Nom' : 'Titre', `<input class="inp" name="title" value="${esc(it.title)}" autocomplete="off" required>`, true);
+  if (cat === 'amiibo') h += field('Numéro', `<input class="inp" name="number" inputmode="numeric" value="${esc(it.number)}" autocomplete="off">`, true);
 
   if (target === 'vu') {
     h += field('Date de visionnage', `<input class="inp" type="date" name="seenDate" value="${esc(it.seenDate)}">`, true);
@@ -410,7 +430,7 @@ async function viewForm(existing, convert, listArg, catArg) {
       <div class="pbtns"><label class="btn ghost">Choisir une image<input type="file" accept="image/*" id="pf" hidden></label>
       <button type="button" class="btn danger-ghost" id="prm">Retirer</button></div></div></div>`;
   }
-  if (target !== 'envie') {
+  if (target !== 'envie' && hasGenre(cat)) {
     h += `<div class="fld"><span class="lbl">Genres${target === 'possede' ? ' <b>*</b>' : ''}</span><div id="gp"></div></div>`;
   }
   if (cat === 'jeu') {
@@ -430,9 +450,13 @@ async function viewForm(existing, convert, listArg, catArg) {
   if (target === 'possede') {
     if (cat === 'film') h += field('Durée (minutes)', `<input class="inp" type="number" inputmode="numeric" name="duration" min="1" value="${esc(it.duration)}">`);
     if (cat === 'livre') h += field('Nombre de pages', `<input class="inp" type="number" inputmode="numeric" name="pages" min="1" value="${esc(it.pages)}">`);
-    h += field("Date d'acquisition", `<input class="inp" type="date" name="acquired" value="${esc(it.acquired)}">`);
+    h += field(cat === 'amiibo' ? "Date d'ajout" : "Date d'acquisition", `<input class="inp" type="date" name="acquired" value="${esc(it.acquired)}">`);
     h += field('Emplacement', `<input class="inp" name="location" value="${esc(it.location)}" autocomplete="off">`);
-    h += `<label class="fld check"><input type="checkbox" name="loaned" ${it.loaned ? 'checked' : ''}> <span>Prêté</span></label>
+    h += `<label class="fld check"><input type="checkbox" name="borrowed" ${it.borrowed ? 'checked' : ''}> <span>On me l'a prêté</span></label>
+      <div id="borrowbox" ${it.borrowed ? '' : 'hidden'}>
+        ${field("Date à laquelle on me l'a prêté", `<input class="inp" type="date" name="borrowedDate" value="${esc(it.borrowedDate)}">`)}
+      </div>
+      <label class="fld check" id="loanchk" ${it.borrowed ? 'hidden' : ''}><input type="checkbox" name="loaned" ${it.loaned && !it.borrowed ? 'checked' : ''}> <span>Je l'ai prêté</span></label>
       <div id="loanbox" ${it.loaned ? '' : 'hidden'}>
         ${field('Prêté à', `<input class="inp" name="loanedTo" value="${esc(it.loanedTo)}" autocomplete="off">`)}
         ${field('Date du prêt', `<input class="inp" type="date" name="loanDate" value="${esc(it.loanDate)}">`)}
@@ -487,6 +511,11 @@ async function viewForm(existing, convert, listArg, catArg) {
   }
   // Prêt
   if (frm.elements.loaned) frm.elements.loaned.addEventListener('change', e => { $('#loanbox').hidden = !e.target.checked; });
+  if (frm.elements.borrowed) frm.elements.borrowed.addEventListener('change', e => {
+    const b = e.target.checked;
+    $('#borrowbox').hidden = !b; $('#loanchk').hidden = b;
+    if (b) { frm.elements.loaned.checked = false; $('#loanbox').hidden = true; }
+  });
 
   // Note
   if ($('.rate')) {
@@ -516,10 +545,11 @@ async function viewForm(existing, convert, listArg, catArg) {
     const E = frm.elements, val = n => (E[n] ? E[n].value.trim() : '');
     const errs = [];
     const t = val('title');
-    if (!t) errs.push('le titre');
+    if (!t) errs.push(cat === 'amiibo' ? 'le nom' : 'le titre');
+    if (cat === 'amiibo' && !val('number')) errs.push('le numéro');
     if (cat === 'jeu' && (!val('console') || val('console') === '__new')) errs.push('la console');
     if (hasSupport(cat) && (!val('support') || val('support') === '__new')) errs.push('le support');
-    if (target === 'possede' && genres.size === 0) errs.push('au moins un genre');
+    if (target === 'possede' && hasGenre(cat) && genres.size === 0) errs.push('au moins un genre');
     if (target === 'vu' && !val('seenDate')) errs.push('la date de visionnage');
     let release = '';
     if (target === 'envie' && frm._rmode) {
@@ -531,6 +561,7 @@ async function viewForm(existing, convert, listArg, catArg) {
 
     it.title = t;
     it.list = target;
+    if (cat === 'amiibo') it.number = val('number');
     if (cat === 'jeu') it.console = val('console');
     if (hasSupport(cat)) it.support = val('support');
     if ($('#gp')) it.genres = [...genres].sort(coll.compare);
@@ -540,7 +571,9 @@ async function viewForm(existing, convert, listArg, catArg) {
       for (const k of ['acquired', 'location', 'loanedTo', 'loanDate']) it[k] = val(k);
       if (cat === 'film') it.duration = val('duration') ? +val('duration') : '';
       if (cat === 'livre') it.pages = val('pages') ? +val('pages') : '';
-      it.loaned = E.loaned.checked;
+      it.borrowed = E.borrowed.checked;
+      it.borrowedDate = it.borrowed ? val('borrowedDate') : '';
+      it.loaned = !it.borrowed && E.loaned.checked;
       if (!it.loaned) { it.loanedTo = ''; it.loanDate = ''; }
     }
     if (poster !== undefined) {
@@ -793,20 +826,33 @@ async function importData(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch { alertBox('Fichier illisible.'); return; }
   if (data.app !== 'ma-collection' || !Array.isArray(data.items) || !data.refs) { alertBox("Ce fichier n'est pas une sauvegarde Ma Collection."); return; }
-  if (!(await confirmBox(`Remplacer toutes les données actuelles par cette sauvegarde (${data.items.length} éléments, du ${new Date(data.exportedAt).toLocaleDateString('fr-FR')}) ?`, 'Remplacer'))) return;
-  await DB.clear('items'); await DB.clear('posters');
-  for (const it of data.items) await DB.put('items', it);
-  for (const [id, u] of Object.entries(data.posters || {})) await DB.put('posters', await dataUrlToBlob(u), id);
-  await DB.put('kv', data.refs, 'refs');
+  const mode = await chooseBox(`Sauvegarde du ${new Date(data.exportedAt).toLocaleDateString('fr-FR')} : ${data.items.length} éléments.`,
+    [['merge', 'Ajouter à mes données', 'primary'], ['replace', 'Tout remplacer', 'danger'], ['', 'Annuler', 'ghost']]);
+  if (!mode) return;
+  if (mode === 'replace') {
+    await DB.clear('items'); await DB.clear('posters');
+    await DB.put('kv', data.refs, 'refs');
+  } else {
+    const R = state.refs, D = data.refs;
+    for (const k of ['supports', 'genres']) for (const x of D[k] || []) {
+      const e = R[k].find(y => norm(y.name) === norm(x.name));
+      if (e) x.cats.forEach(c => { if (!e.cats.includes(c)) e.cats.push(c); }); else R[k].push(x);
+    }
+    for (const c of D.consoles || []) if (!R.consoles.some(y => norm(y) === norm(c))) R.consoles.push(c);
+    await saveRefs();
+  }
+  let added = 0;
+  for (const it of data.items) if (mode === 'replace' || !getItem(it.id)) { await DB.put('items', it); added++; }
+  for (const [id, u] of Object.entries(data.posters || {})) if (mode === 'replace' || !(await DB.get('posters', id))) await DB.put('posters', await dataUrlToBlob(u), id);
   state.posterUrls.forEach(u => u && URL.revokeObjectURL(u)); state.posterUrls.clear();
   await loadAll();
-  toast('Sauvegarde importée');
+  toast(mode === 'replace' ? 'Sauvegarde importée' : `${added} élément${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''}`);
   location.hash = '#/';
   render();
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 (async () => {
   await DB.open();
   await loadAll();
