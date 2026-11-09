@@ -28,6 +28,18 @@ const fmtDate = d => { if (!d) return ''; const [y, m, j] = d.split('-'); return
 const gcat = cat => (cat === 'cinema' ? 'film' : cat);
 const hasSupport = cat => SUPPORT_CATS.includes(cat);
 const hasGenre = cat => cat !== 'amiibo';
+const IMG_CATS = ['film', 'cinema', 'jeu', 'livre', 'societe'];   // catégories avec image
+const PROVIDER = { film: 'tmdb', cinema: 'tmdb', jeu: 'rawg', livre: 'ol' }; // recherche automatique
+const PROV_NAME = { tmdb: 'TMDB', rawg: 'RAWG', ol: 'Open Library', igdb: 'IGDB' };
+const PROV_LINK = { tmdb: 'https://www.themoviedb.org', rawg: 'https://rawg.io', ol: 'https://openlibrary.org', igdb: 'https://www.igdb.com' };
+const IMG_LABEL = cat => (cat === 'societe' ? 'Photo' : cat === 'jeu' ? 'Jaquette' : cat === 'livre' ? 'Couverture' : 'Affiche');
+const hasImg = cat => IMG_CATS.includes(cat);
+const provAvail = p => (p === 'tmdb' ? !!state.tmdb : p === 'rawg' ? !!state.rawg : p === 'ol');
+const canSearch = cat => !!PROVIDER[cat] && provAvail(PROVIDER[cat]);
+const TMDB_IMG = 'https://image.tmdb.org/t/p/w500';
+const REMOTE_SRC = ['tmdb', 'rawg', 'ol', 'igdb'];
+const remoteUrl = it => (it.posterSrc === 'removed' ? '' : it.imgUrl || (it.tmdbPoster ? TMDB_IMG + it.tmdbPoster : ''));
+const loadThumbs = () => $$('[data-poster]').forEach(async el => { const u = await posterUrl(el.dataset.poster); if (u) el.style.backgroundImage = `url("${u}")`; else el.textContent = el.dataset.ph || '🎬'; });
 const svgStar = '<svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z"/></svg>';
 
 function starsHtml(v, cls = '') {
@@ -84,6 +96,7 @@ const state = {
   posterUrls: new Map(),
   lastExport: null,
   tmdb: '',
+  rawg: '',
 };
 
 async function loadAll() {
@@ -96,6 +109,7 @@ async function loadAll() {
   state.refs = refs;
   state.lastExport = await DB.get('kv', 'lastExport');
   state.tmdb = (await DB.get('kv', 'tmdb')) || '';
+  state.rawg = (await DB.get('kv', 'rawg')) || '';
 }
 const saveRefs = () => DB.put('kv', state.refs, 'refs');
 
@@ -116,13 +130,14 @@ const getItem = id => state.items.find(x => x.id === id);
 async function posterUrl(id) {
   if (state.posterUrls.has(id)) return state.posterUrls.get(id);
   const blob = await DB.get('posters', id);
-  const url = blob ? URL.createObjectURL(blob) : null;
+  const it = getItem(id);
+  const url = blob ? URL.createObjectURL(blob) : (it && remoteUrl(it)) || null;
   state.posterUrls.set(id, url);
   return url;
 }
 function dropPosterUrl(id) {
   const u = state.posterUrls.get(id);
-  if (u) URL.revokeObjectURL(u);
+  if (u && u.startsWith('blob:')) URL.revokeObjectURL(u);
   state.posterUrls.delete(id);
 }
 
@@ -282,9 +297,18 @@ function viewList(cat) {
           ${hasSupport(cat) ? sel('support', 'Tous supports', supportsFor(cat).map(s => s.name)) : ''}
           ${cat === 'jeu' ? sel('console', 'Toutes consoles', state.refs.consoles) : ''}
         </div>
+        ${PROVIDER[cat] ? `<button class="btn ghost block" id="mp">🔎 Récupérer les ${IMG_LABEL(cat).toLowerCase()}s manquantes</button>` : ''}
       </div>
-      <div id="res"></div>`,
+      <div id="res"></div>
+      ${PROVIDER[cat] ? `<p class="credit">Images : ${(cat === 'jeu' ? ['igdb', 'rawg'] : [PROVIDER[cat]]).map(k => `<a href="${PROV_LINK[k]}" target="_blank" rel="noopener">${PROV_NAME[k]}</a>`).join(' · ')}</p>` : ''}`,
   });
+  if ($('#mp')) $('#mp').onclick = async () => {
+    const todo = await missingPosters(items);
+    if (!todo.length) { alertBox(canSearch(cat) ? 'Tout a déjà une image.' : `Ajoute ta clé ${PROV_NAME[PROVIDER[cat]]} dans les Réglages pour chercher les images.`); return; }
+    const r = await fetchPosters(todo);
+    await modal({ title: 'Images', text: `${r.posters} trouvée${r.posters > 1 ? 's' : ''} sur ${todo.length}.${r.offline ? `\n${PROV_NAME[PROVIDER[cat]]} inaccessible : vérifie ta connexion.` : ''}`, cancel: null });
+    draw();
+  };
   const draw = () => {
     const q = norm(f.q);
     const list = items.filter(i =>
@@ -296,11 +320,13 @@ function viewList(cat) {
     const badge = i => (i.borrowed ? '<span class="badge alt">Emprunté</span>' : i.loaned ? '<span class="badge">Prêté</span>' : '');
     $('#res').innerHTML = `<p class="count">${list.length} ${list.length > 1 ? 'résultats' : 'résultat'}</p>` +
       (list.length ? `<div class="rows">${list.map(i => `
-        <a class="row" href="#/fiche/${i.id}">
+        <a class="row ${hasImg(cat) ? 'cine' : ''}" href="#/fiche/${i.id}">
+          ${hasImg(cat) ? `<span class="thumb ${i.posterSrc === 'rawg' ? 'wide' : ''}" data-poster="${i.id}" data-ph="${CATS[cat].icon}"></span>` : ''}
           <span class="rt">${prefix(i) ? `<span class="pre">${esc(prefix(i))}</span> ` : ''}${esc(i.title)}</span>
           ${cat === 'livre' ? `<span class="rm">${esc(i.support)}</span>` : ''}
           ${badge(i)}
         </a>`).join('')}</div>` : `<p class="empty">Rien à afficher.</p>`);
+    loadThumbs();
   };
   $$('[data-f]').forEach(el => el.addEventListener('input', () => { f[el.dataset.f] = el.value; draw(); }));
   draw();
@@ -347,14 +373,14 @@ function viewWishes(cat) {
     title: 'Wishlist', back: '#/', fab: `#/nouveau/envie/${cat}`,
     body: `<nav class="tabs">${tabs}</nav>
       ${list.length ? `<div class="rows">${list.map(i => `
-        <a class="row ${cat === 'cinema' ? 'cine' : ''}" href="#/fiche/${i.id}">
-          ${cat === 'cinema' ? `<span class="thumb" data-poster="${i.id}"></span>` : ''}
+        <a class="row ${hasImg(cat) ? 'cine' : ''}" href="#/fiche/${i.id}">
+          ${hasImg(cat) ? `<span class="thumb ${i.posterSrc === 'rawg' ? 'wide' : ''}" data-poster="${i.id}" data-ph="${CATS[cat].icon}"></span>` : ''}
           <span class="rt">${esc(i.title)}
             <small>${[cat === 'amiibo' ? 'N° ' + i.number : '', cat === 'jeu' ? i.console : '', hasSupport(cat) ? i.support : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
           <span class="rm">${i.release ? fmtDate(i.release) : 'N.C.'}</span>
         </a>`).join('')}</div>` : '<p class="empty">Rien dans la Wishlist pour cette catégorie.</p>'}`,
   });
-  $$('[data-poster]').forEach(async el => { const u = await posterUrl(el.dataset.poster); if (u) el.style.backgroundImage = `url("${u}")`; else el.textContent = '🎬'; });
+  loadThumbs();
 }
 
 /* ---------- Cinéma ---------- */
@@ -393,14 +419,13 @@ function viewCinema() {
         <span class="thumb" data-poster="${i.id}"></span>
         <span class="rt">${esc(i.title)}<small>${fmtDate(i.seenDate)} · ${PLACES[placeOf(i)]}</small>${starsHtml(i.rating, 'sm')}</span>
       </a>`).join('')}</div>` : '<p class="empty">Aucun film sur cette période.</p>');
-    $$('[data-poster]').forEach(async el => { const u = await posterUrl(el.dataset.poster); if (u) el.style.backgroundImage = `url("${u}")`; else el.textContent = '🎬'; });
+    loadThumbs();
   };
   $('#cy').addEventListener('change', e => { f.year = e.target.value; if (!f.year) f.month = ''; $('#cm').disabled = !f.year; if (!f.year) $('#cm').value = ''; draw(); });
   $('#cm').addEventListener('change', e => { f.month = e.target.value; draw(); });
   $('#cp').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; f.place = b.dataset.p; $$('#cp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   if ($('#mp')) $('#mp').onclick = async () => {
-    const todo = [];
-    for (const i of state.items.filter(x => x.cat === 'cinema')) if (!(await DB.get('posters', i.id)) && (state.tmdb || i.tmdbPoster)) todo.push(i);
+    const todo = await missingPosters(state.items.filter(x => x.cat === 'cinema'));
     if (!todo.length) { alertBox(state.tmdb ? 'Tous les films ont déjà une affiche.' : 'Ajoute ta clé TMDB dans les Réglages pour chercher les affiches.'); return; }
     const r = await fetchPosters(todo);
     await modal({ title: 'Affiches', text: `${r.posters} trouvée${r.posters > 1 ? 's' : ''} sur ${todo.length}.${r.offline ? '\nTMDB inaccessible : vérifie ta connexion.' : ''}`, cancel: null });
@@ -424,18 +449,20 @@ async function viewDetail(id) {
     h += row('Note', `${starsHtml(it.rating)} <span class="muted">${fmtRating(it.rating)}</span>`);
     if (it.genres?.length) h += row('Genres', chips(it.genres));
   } else if (it.list === 'envie') {
-    if (it.cat === 'cinema') h += `<div class="poster-big" id="pb"></div>`;
+    if (hasImg(it.cat)) h += `<div class="poster-big" id="pb"></div>`;
     if (it.cat === 'amiibo') h += row('Numéro', esc(it.number));
     if (it.cat === 'jeu') h += row('Console', esc(it.console));
     if (hasSupport(it.cat)) h += row('Support', esc(it.support));
     h += row('Date de sortie', it.release ? esc(fmtDate(it.release)) : 'N.C.');
   } else {
+    if (hasImg(it.cat)) h += `<div class="poster-big" id="pb"></div>`;
     if (it.cat === 'amiibo') h += row('Numéro', esc(it.number));
     if (hasGenre(it.cat)) h += row('Genres', chips(it.genres || []));
     if (it.cat === 'jeu') h += row('Console', esc(it.console));
     if (hasSupport(it.cat)) h += row('Support', esc(it.support));
     if (it.cat === 'film' && it.duration) h += row('Durée', esc(fmtDuration(it.duration)));
     if (it.cat === 'livre' && it.pages) h += row('Pages', esc(it.pages));
+    if (it.cat === 'livre' && it.isbn) h += row('ISBN', esc(it.isbn));
     if (it.acquired) h += row(it.cat === 'amiibo' ? "Date d'ajout" : "Date d'acquisition", esc(fmtDate(it.acquired)));
     if (it.location) h += row('Emplacement', esc(it.location));
     if (it.borrowed) {
@@ -449,17 +476,19 @@ async function viewDetail(id) {
     }
   }
   const blBtn = it.cat === 'jeu' && it.list === 'possede' ? `<button class="btn ghost block" id="bl">${it.backlog ? '➖ Retirer du backlog' : '🕹️ Ajouter au backlog'}</button>` : '';
+  const csrc = REMOTE_SRC.includes(it.posterSrc) ? it.posterSrc : (it.tmdbPoster && it.posterSrc !== 'removed' ? 'tmdb' : '');
+  const credit = csrc ? `<p class="credit">${IMG_LABEL(it.cat)} : <a href="${PROV_LINK[csrc]}" target="_blank" rel="noopener">${PROV_NAME[csrc]}</a></p>` : '';
   const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '';
   const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Wishlist · ' + CATS[it.cat].short : 'Film vu';
   page({
     title: '', back: backOf(it),
     right: `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
     body: `<p class="kicker">${esc(sub)}</p><h2 class="title">${esc(it.title)}</h2>
-      <div class="fiche">${h}</div>
+      <div class="fiche">${h}</div>${credit}
       <div class="actions">${convert}${blBtn}
         <button class="btn danger-ghost block" id="del">Supprimer</button></div>`,
   });
-  if ($('#pb')) { const u = await posterUrl(it.id); $('#pb').innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'affiche</div>'; }
+  if ($('#pb')) { const u = await posterUrl(it.id); $('#pb').innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'image</div>'; }
   if ($('#bl')) $('#bl').onclick = async () => { it.backlog = !it.backlog; await saveItem(it); toast(it.backlog ? 'Ajouté au backlog' : 'Retiré du backlog'); viewDetail(it.id); };
   $('#del').onclick = async () => {
     const msg = it.list === 'envie' ? `Retirer « ${it.title} » de la Wishlist ?` : `Supprimer définitivement « ${it.title} » ?`;
@@ -480,7 +509,13 @@ async function viewForm(existing, convert, listArg, catArg) {
   const genres = new Set(it.genres || []);
   let rating = it.rating || 0;
   let poster = undefined; // undefined = inchangé, null = supprimé, Blob = nouveau
-  let posterMeta = null;  // { src: 'manual' } ou { src: 'tmdb', path }
+  let posterMeta = null;  // { src: 'manual' } ou { src: 'tmdb'|'rawg'|'ol', url }
+  const REMOTE = 'remote'; // image trouvée mais non téléchargeable : on garde seulement l'adresse
+  const formQuery = () => {
+    const E = frm.elements;
+    const yr = E.year ? E.year.value.trim() : (E.ryear && !E.ryear.hidden ? E.ryear.value : E.rdate && !E.rdate.hidden ? E.rdate.value.slice(0, 4) : (it.release || '').slice(0, 4));
+    return { cat, title: E.title.value.trim(), year: yr, console: E.console ? E.console.value : it.console, isbn: E.isbn ? E.isbn.value.replace(/[^0-9Xx]/g, '') : it.isbn };
+  };
   if (target === 'vu' && !it.seenDate) it.seenDate = today();
 
   const title = convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter à ma collection')
@@ -491,11 +526,10 @@ async function viewForm(existing, convert, listArg, catArg) {
   let h = field(cat === 'amiibo' ? 'Nom' : 'Titre', `<input class="inp" name="title" value="${esc(it.title)}" autocomplete="off" required>`, true);
   if (cat === 'amiibo') h += field('Numéro', `<input class="inp" name="number" inputmode="numeric" value="${esc(it.number)}" autocomplete="off">`, true);
 
-  const posterBlock = `<div class="fld"><span class="lbl">Affiche</span><div class="poster-edit"><div class="poster-prev" id="pp"></div>
+  const posterBlock = `<div class="fld"><span class="lbl">${IMG_LABEL(cat)}</span><div class="poster-edit"><div class="poster-prev" id="pp"></div>
       <div class="pbtns"><label class="btn ghost">Choisir une image<input type="file" accept="image/*" id="pf" hidden></label>
-      ${state.tmdb ? '<button type="button" class="btn ghost" id="ptm">🔎 Chercher sur TMDB</button>' : ''}
+      ${canSearch(cat) ? `<button type="button" class="btn ghost" id="ptm">🔎 Chercher sur ${PROV_NAME[PROVIDER[cat]]}</button>` : ''}
       <button type="button" class="btn danger-ghost" id="prm">Retirer</button></div></div></div>`;
-  const hasPoster = target === 'vu' || (target === 'envie' && cat === 'cinema');
   if (target === 'vu') {
     h += field('Date de visionnage', `<input class="inp" type="date" name="seenDate" value="${esc(it.seenDate)}">`, true);
     h += `<div class="fld"><span class="lbl">Lieu</span><div class="seg two" id="pl">${Object.entries(PLACES).map(([k, l]) => `<button type="button" data-p="${k}" class="${placeOf(it) === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
@@ -520,9 +554,11 @@ async function viewForm(existing, convert, listArg, catArg) {
       <input class="inp" type="number" inputmode="numeric" name="ryear" placeholder="AAAA" min="1900" max="2100" value="${mode === 'year' ? r : ''}" ${mode === 'year' ? '' : 'hidden'}>
       <input class="inp" type="date" name="rdate" value="${mode === 'date' ? r : ''}" ${mode === 'date' ? '' : 'hidden'}></div>`;
   }
-  if (target === 'envie' && cat === 'cinema') h += posterBlock;
+  if (target === 'envie' && cat === 'livre') h += field('ISBN', `<input class="inp" name="isbn" inputmode="numeric" placeholder="Facultatif, aide à trouver la couverture" value="${esc(it.isbn)}" autocomplete="off">`);
+  if (target !== 'vu' && hasImg(cat)) h += posterBlock;
   if (target === 'possede') {
     if (cat === 'film') h += field('Durée (minutes)', `<input class="inp" type="number" inputmode="numeric" name="duration" min="1" value="${esc(it.duration)}">`);
+    if (cat === 'livre') h += field('ISBN', `<input class="inp" name="isbn" inputmode="numeric" placeholder="Facultatif, aide à trouver la couverture" value="${esc(it.isbn)}" autocomplete="off">`);
     if (cat === 'livre') h += field('Nombre de pages', `<input class="inp" type="number" inputmode="numeric" name="pages" min="1" value="${esc(it.pages)}">`);
     h += field(cat === 'amiibo' ? "Date d'ajout" : "Date d'acquisition", `<input class="inp" type="date" name="acquired" value="${esc(it.acquired)}">`);
     h += field('Emplacement', `<input class="inp" name="location" value="${esc(it.location)}" autocomplete="off">`);
@@ -612,17 +648,21 @@ async function viewForm(existing, convert, listArg, catArg) {
       try { poster = await resizeImage(f); posterMeta = { src: 'manual' }; show(URL.createObjectURL(poster)); } catch (err) { alertBox("Impossible de lire l'image."); }
     });
     $('#prm').onclick = () => { poster = null; posterMeta = null; show(null); };
+    const pname = PROV_NAME[PROVIDER[cat]];
     if ($('#ptm')) $('#ptm').onclick = async () => {
-      const yearField = frm.elements.year;
-      const yr = yearField ? yearField.value.trim() : (frm.elements.ryear && !frm.elements.ryear.hidden ? frm.elements.ryear.value : frm.elements.rdate && !frm.elements.rdate.hidden ? frm.elements.rdate.value.slice(0, 4) : '');
-      const t = frm.elements.title.value.trim(); if (!t) { alertBox("Saisis d'abord le titre."); return; }
+      const q = formQuery(); if (!q.title) { alertBox("Saisis d'abord le titre."); return; }
       $('#ptm').disabled = true; $('#ptm').textContent = 'Recherche…';
       try {
-        const r = await TMDB.find(t, yr);
-        if (!r) { alertBox('Aucune affiche trouvée sur TMDB pour ce titre.'); }
-        else { poster = r.blob; posterMeta = { src: 'tmdb', path: r.posterPath }; show(URL.createObjectURL(poster)); if (r.year && yearField && !yearField.value) yearField.value = r.year; if ($('#gp') && !genres.size && r.genres.length) { r.genres.forEach(g => genres.add(g)); genrePicker($('#gp'), cat, genres); } }
-      } catch (err) { alertBox('TMDB inaccessible (connexion internet ?)'); }
-      $('#ptm').disabled = false; $('#ptm').textContent = '🔎 Chercher sur TMDB';
+        const r = await getImage(q);
+        if (!r) { alertBox(`Aucune image trouvée sur ${pname} pour ce titre.`); }
+        else {
+          posterMeta = { src: r.src, url: r.url };
+          if (r.blob) { poster = r.blob; show(URL.createObjectURL(poster)); } else { poster = REMOTE; show(r.url); }
+          if (r.year && frm.elements.year && !frm.elements.year.value) frm.elements.year.value = r.year;
+          if ($('#gp') && !genres.size && (r.genres || []).length) { r.genres.forEach(g => genres.add(g)); genrePicker($('#gp'), cat, genres); }
+        }
+      } catch (err) { alertBox(`${pname} inaccessible : ${err.message}`); }
+      $('#ptm').disabled = false; $('#ptm').textContent = `🔎 Chercher sur ${pname}`;
     };
   }
   let place = placeOf(it);
@@ -654,20 +694,21 @@ async function viewForm(existing, convert, listArg, catArg) {
     if (hasSupport(cat)) it.support = val('support');
     if ($('#gp')) it.genres = [...genres].sort(coll.compare);
     if (target === 'envie') it.release = release;
-    if (target === 'envie' && cat === 'cinema' && poster === undefined && isNew && state.tmdb) {
-      toast("Recherche de l'affiche…");
-      try { const r = await TMDB.find(it.title, release.slice(0, 4)); if (r) { poster = r.blob; posterMeta = { src: 'tmdb', path: r.posterPath }; } } catch (err) { /* hors ligne */ }
-    }
+    if (cat === 'livre') it.isbn = val('isbn').replace(/[^0-9Xx]/g, '');
     if (target === 'vu') {
       it.seenDate = val('seenDate'); it.rating = rating; it.place = place; it.year = val('year');
-      // Affiche automatique pour un nouveau film sans affiche
-      if (poster === undefined && (isNew || convert) && state.tmdb && !(await DB.get('posters', it.id))) {
-        toast("Recherche de l'affiche…");
-        try {
-          const r = await TMDB.find(it.title, it.year);
-          if (r) { poster = r.blob; posterMeta = { src: 'tmdb', path: r.posterPath }; if (!it.year) it.year = r.year; if (!genres.size && r.genres.length) it.genres = r.genres; }
-        } catch (err) { /* hors ligne : on enregistre sans affiche */ }
-      }
+    }
+    // Image automatique pour un nouvel élément sans image choisie
+    if (hasImg(cat) && canSearch(cat) && poster === undefined && (isNew || convert) && !(await DB.get('posters', it.id)) && !remoteUrl(it)) {
+      toast("Recherche de l'image…");
+      try {
+        const r = await getImage({ ...formQuery(), year: it.year || (release || it.release || '').slice(0, 4) });
+        if (r) {
+          posterMeta = { src: r.src, url: r.url }; poster = r.blob || REMOTE;
+          if (target === 'vu' && !it.year && r.year) it.year = r.year;
+          if (target === 'vu' && !genres.size && (r.genres || []).length) it.genres = r.genres;
+        }
+      } catch (err) { /* hors ligne : on enregistre sans image */ }
     }
     if (target === 'possede') {
       for (const k of ['acquired', 'location', 'loanedTo', 'loanDate']) it[k] = val(k);
@@ -679,9 +720,10 @@ async function viewForm(existing, convert, listArg, catArg) {
       if (!it.loaned) { it.loanedTo = ''; it.loanDate = ''; }
     }
     if (poster !== undefined) {
-      if (poster) await DB.put('posters', poster, it.id); else await DB.del('posters', it.id);
-      it.posterSrc = poster ? (posterMeta?.src || 'manual') : '';
-      it.tmdbPoster = poster && posterMeta?.src === 'tmdb' ? posterMeta.path : '';
+      if (poster instanceof Blob) await DB.put('posters', poster, it.id); else await DB.del('posters', it.id);
+      it.posterSrc = poster ? (posterMeta?.src || 'manual') : 'removed';
+      it.imgUrl = poster && posterMeta?.url ? posterMeta.url : '';
+      it.tmdbPoster = '';
       dropPosterUrl(it.id);
     }
     await saveItem(it);
@@ -840,12 +882,12 @@ async function shareFile(file, fallbackUrl) {
 const TMDB_GENRES = { 28: 'Action', 12: 'Aventure', 16: 'Animation', 35: 'Comédie', 80: 'Crime', 99: 'Documentaire', 18: 'Drame', 14: 'Fantastique',
   36: 'Historique', 27: 'Horreur', 10402: 'Musical', 9648: 'Mystère', 10749: 'Romance', 878: 'Science-fiction', 53: 'Thriller', 10752: 'Guerre', 37: 'Western' };
 const TMDB = {
-  async search(title, year, key) {
+  async search(title, year, key, kind = 'movie') {
     const p = new URLSearchParams({ query: title, language: 'fr-FR', include_adult: 'false' });
-    if (year) p.set('year', year);
+    if (year) p.set(kind === 'tv' ? 'first_air_date_year' : 'year', year);
     const headers = {};
     if (key.includes('.')) headers.Authorization = 'Bearer ' + key; else p.set('api_key', key);
-    const r = await fetch('https://api.themoviedb.org/3/search/movie?' + p, { headers });
+    const r = await fetch(`https://api.themoviedb.org/3/search/${kind}?` + p, { headers });
     if (r.status === 401) throw new Error('clé TMDB refusée');
     if (!r.ok) throw new Error('TMDB ' + r.status);
     return ((await r.json()).results || []).find(x => x.poster_path) || null;
@@ -855,8 +897,10 @@ const TMDB = {
     if (!key) return null;
     let m = await this.search(title, year, key);
     if (!m && year) m = await this.search(title, '', key);
+    if (!m) m = await this.search(title, '', key, 'tv');   // séries (coffrets, saisons…)
+    if (!m && /saison|season|intégrale|integrale/i.test(title)) m = await this.search(title.replace(/\s*(saisons?|seasons?|intégrale|integrale)\b.*$/i, ''), '', key, 'tv');
     if (!m) return null;
-    const res = { title: m.title, year: (m.release_date || '').slice(0, 4), genres: [...new Set((m.genre_ids || []).map(g => TMDB_GENRES[g]).filter(Boolean))] };
+    const res = { title: m.title || m.name, year: (m.release_date || m.first_air_date || '').slice(0, 4), genres: [...new Set((m.genre_ids || []).map(g => TMDB_GENRES[g]).filter(Boolean))] };
     res.posterPath = m.poster_path;
     if (noImage) return res;
     res.blob = await this.image(m.poster_path);
@@ -870,31 +914,101 @@ const TMDB = {
   },
 };
 
-/* ================= Import Letterboxd ================= */
+/* ================= RAWG (jeux vidéo) ================= */
+const RAWG_PLAT = { Switch: 7, PS5: 187, PS4: 18, PS3: 16, PS2: 15, Playstation: 27, PSP: 17, '3DS': 8, DS: 9, WII: 11, WIIU: 10, GC: 105, N64: 83,
+  GBA: 24, GB: 26, GBC: 43, GameGear: 77, PC: 4, XBOX: 80, XBOX360: 14, XBOXONE: 1, XBOXSeries: 186 };
+const RAWG = {
+  async search(title, platform, key) {
+    const p = new URLSearchParams({ key, search: title, page_size: '5', search_precise: 'true' });
+    if (platform) p.set('platforms', platform);
+    const r = await fetch('https://api.rawg.io/api/games?' + p);
+    if (r.status === 401 || r.status === 403) throw new Error('clé RAWG refusée');
+    if (!r.ok) throw new Error('RAWG ' + r.status);
+    return ((await r.json()).results || []).find(x => x.background_image) || null;
+  },
+  async find(title, consoleName, key = state.rawg) {
+    if (!key) return null;
+    const plat = RAWG_PLAT[consoleName];
+    let g = await this.search(title, plat, key);
+    if (!g && plat) g = await this.search(title, '', key);
+    if (!g) return null;
+    // version redimensionnée (plus légère) quand l'adresse le permet
+    const url = g.background_image.replace('/media/games/', '/media/resize/640/-/games/');
+    return { src: 'rawg', url, title: g.name, year: (g.released || '').slice(0, 4) };
+  },
+};
+
+/* ================= Open Library (livres) ================= */
+const OL = {
+  async find(title, isbn) {
+    if (isbn) {
+      const url = `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`;
+      try { const r = await fetch(url); if (r.ok) return { src: 'ol', url, blob: await resizeImage(await r.blob()) }; } catch (err) { /* on tente la recherche par titre */ }
+    }
+    const p = new URLSearchParams({ q: title, fields: 'title,cover_i,first_publish_year,language', limit: '10' });
+    const r = await fetch('https://openlibrary.org/search.json?' + p);
+    if (!r.ok) throw new Error('Open Library ' + r.status);
+    const docs = ((await r.json()).docs || []).filter(d => d.cover_i);
+    const d = docs.find(x => (x.language || []).includes('fre')) || docs[0];
+    return d ? { src: 'ol', url: `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg`, title: d.title, year: String(d.first_publish_year || '') } : null;
+  },
+};
+
+/* ================= Recherche d'images (tous fournisseurs) ================= */
+async function downloadImage(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('image ' + r.status);
+  return resizeImage(await r.blob());
+}
+// Renvoie { src, url, blob?, year?, genres? } ou null ; lève une erreur si le service est inaccessible
+async function findImage(q) {
+  const p = PROVIDER[q.cat];
+  if (p === 'tmdb') { const r = await TMDB.find(q.title, q.year, state.tmdb, true); return r && { src: 'tmdb', url: TMDB_IMG + r.posterPath, year: r.year, genres: r.genres }; }
+  if (p === 'rawg') return RAWG.find(q.title, q.console);
+  if (p === 'ol') return OL.find(q.title, q.isbn);
+  return null;
+}
+async function getImage(q) {
+  const r = await findImage(q);
+  if (!r) return null;
+  if (!r.blob) { try { r.blob = await downloadImage(r.url); } catch (err) { r.blob = null; } }
+  return r;
+}
+// Éléments sans image (hors images retirées volontairement) pour lesquels une recherche est possible
+async function missingPosters(list) {
+  const out = [];
+  for (const i of list) if (PROVIDER[i.cat] && i.posterSrc !== 'removed' && !(await DB.get('posters', i.id)) && (remoteUrl(i) || canSearch(i.cat))) out.push(i);
+  return out;
+}
 async function fetchPosters(list) {
   let posters = 0, missing = 0, offline = false;
-  const pg = progressBox('Téléchargement des affiches…');
+  const pg = progressBox('Téléchargement des images…');
   for (let k = 0; k < list.length; k++) {
     const it = list[k];
-    pg.set(`Affiches : ${k + 1} / ${list.length}\n${it.title}`);
+    pg.set(`Images : ${k + 1} / ${list.length}\n${it.title}`);
+    const known = remoteUrl(it);
+    if (known) {   // adresse déjà connue (import d'une sauvegarde) : simple téléchargement
+      try { await DB.put('posters', await downloadImage(known), it.id); dropPosterUrl(it.id); posters++; }
+      catch (err) { if (!navigator.onLine) { offline = true; missing += list.length - k; break; } posters++; /* reste affichée en ligne */ }
+      continue;
+    }
+    if (!canSearch(it.cat)) { missing++; continue; }
     try {
-      if (it.tmdbPoster) {
-        await DB.put('posters', await TMDB.image(it.tmdbPoster), it.id); dropPosterUrl(it.id);
-        it.posterSrc = 'tmdb'; await saveItem(it); posters++; continue;
-      }
-      const r = state.tmdb ? await TMDB.find(it.title, it.year) : null;
-      if (r) {
-        await DB.put('posters', r.blob, it.id); dropPosterUrl(it.id);
-        it.posterSrc = 'tmdb'; it.tmdbPoster = r.posterPath;
-        if (!it.year) it.year = r.year;
-        if (it.list === 'vu' && !(it.genres || []).length && r.genres.length) it.genres = r.genres;
-        await saveItem(it); posters++;
-      } else missing++;
+      const r = await getImage(it);
+      if (!r) { missing++; continue; }
+      it.posterSrc = r.src; it.imgUrl = r.url; it.tmdbPoster = '';
+      if (r.blob) await DB.put('posters', r.blob, it.id);
+      dropPosterUrl(it.id);
+      if (it.list === 'vu' && !it.year && r.year) it.year = r.year;
+      if (it.list === 'vu' && !(it.genres || []).length && (r.genres || []).length) it.genres = r.genres;
+      await saveItem(it); posters++;
     } catch (err) { offline = true; missing += list.length - k; break; }
   }
   pg.close();
   return { posters, missing, offline };
 }
+
+/* ================= Import Letterboxd ================= */
 function parseCSV(text) {
   const rows = []; let row = [], f = '', q = false;
   text = text.replace(/^\uFEFF/, '');
@@ -978,6 +1092,11 @@ function viewSettings() {
       <input class="inp" type="password" id="tk" placeholder="Clé API ou jeton TMDB" value="${esc(state.tmdb)}" autocomplete="off">
       <div class="addrow"><button class="btn primary" id="tks">Enregistrer</button><button class="btn ghost" id="tkt">Tester</button></div>
     </section>
+    <section class="card"><h2 class="sec">RAWG (jaquettes de jeux vidéo)</h2>
+      <p class="muted small">Colle ta clé API RAWG. Elle reste uniquement sur cet appareil. Les couvertures de livres viennent d'Open Library, sans clé.</p>
+      <input class="inp" type="password" id="rk" placeholder="Clé API RAWG" value="${esc(state.rawg)}" autocomplete="off">
+      <div class="addrow"><button class="btn primary" id="rks">Enregistrer</button><button class="btn ghost" id="rkt">Tester</button></div>
+    </section>
     <section class="card"><h2 class="sec">Supports</h2>
       <div class="refs">${state.refs.supports.map((s, i) => `<div class="ref"><span class="rn">${esc(s.name)}</span><span class="rc">${catChips('support', i, s.cats, SUPPORT_CATS)}</span>${del('support', i, s.name)}</div>`).join('')}</div>
       <div class="addrow"><input class="inp" id="ns" placeholder="Nouveau support"><button class="btn primary" id="ans">Ajouter</button></div>
@@ -1037,6 +1156,16 @@ function viewSettings() {
   $('#gf').addEventListener('input', e => { const q = norm(e.target.value); $$('#glist .ref').forEach(r => { r.hidden = q && !r.dataset.n.includes(q); }); });
   $('#exp').onclick = exportData;
   $('#tks').onclick = async () => { state.tmdb = $('#tk').value.trim(); await DB.put('kv', state.tmdb, 'tmdb'); toast(state.tmdb ? 'Clé TMDB enregistrée' : 'Clé TMDB supprimée'); };
+  $('#rks').onclick = async () => { state.rawg = $('#rk').value.trim(); await DB.put('kv', state.rawg, 'rawg'); toast(state.rawg ? 'Clé RAWG enregistrée' : 'Clé RAWG supprimée'); };
+  $('#rkt').onclick = async () => {
+    const k = $('#rk').value.trim(); if (!k) { alertBox('Aucune clé saisie.'); return; }
+    try {
+      const r = await RAWG.find('The Legend of Zelda: Breath of the Wild', 'Switch', k);
+      if (!r) { alertBox('Connexion OK.'); return; }
+      try { await downloadImage(r.url); alertBox(`Connexion OK : « ${r.title} » trouvé, image téléchargeable.`); }
+      catch (err) { alertBox(`Connexion OK : « ${r.title} » trouvé. Les images seront affichées en ligne seulement (non enregistrées hors connexion).`); }
+    } catch (err) { alertBox('Échec : ' + err.message); }
+  };
   $('#tkt').onclick = async () => {
     const k = $('#tk').value.trim(); if (!k) { alertBox('Aucune clé saisie.'); return; }
     try { const r = await TMDB.find('Le Fabuleux Destin d\'Amélie Poulain', '2001', k, true); alertBox(r ? `Connexion OK : « ${r.title} » trouvé.` : 'Connexion OK.'); }
@@ -1053,7 +1182,7 @@ async function exportData() {
   const posters = {};
   for (const id of await DB.keys('posters')) {
     const it = getItem(id);
-    if (it && it.posterSrc === 'tmdb' && it.tmdbPoster) continue;
+    if (it && REMOTE_SRC.includes(it.posterSrc) && remoteUrl(it)) continue;
     const b = await DB.get('posters', id); if (b) posters[id] = await blobToDataUrl(b);
   }
   const data = { app: 'ma-collection', version: 1, exportedAt: new Date().toISOString(), refs: state.refs, items: state.items, posters };
@@ -1089,11 +1218,11 @@ async function importData(file) {
   state.posterUrls.forEach(u => u && URL.revokeObjectURL(u)); state.posterUrls.clear();
   await loadAll();
   const todo = [];
-  for (const i of state.items) if (i.tmdbPoster && !(await DB.get('posters', i.id))) todo.push(i);
+  for (const i of state.items) if (remoteUrl(i) && !(await DB.get('posters', i.id))) todo.push(i);
   let extra = '';
   if (todo.length) {
     const r = await fetchPosters(todo);
-    extra = r.offline ? ` · ${todo.length - r.posters} affiche(s) à récupérer plus tard (pas de connexion)` : ` · ${r.posters} affiche${r.posters > 1 ? 's' : ''} téléchargée${r.posters > 1 ? 's' : ''}`;
+    extra = r.offline ? ` · ${todo.length - r.posters} image(s) à récupérer plus tard (pas de connexion)` : ` · ${r.posters} image${r.posters > 1 ? 's' : ''} téléchargée${r.posters > 1 ? 's' : ''}`;
   }
   toast((mode === 'replace' ? 'Sauvegarde importée' : `${added} élément${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''}`) + extra);
   location.hash = '#/';
@@ -1101,7 +1230,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.4.1';
 (async () => {
   await DB.open();
   await loadAll();

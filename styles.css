@@ -169,3 +169,6 @@ input[type=date].inp { min-height: 46px; }
 .seg.two { grid-template-columns: 1fr 1fr; }
 #pgt { white-space: pre-line; text-align: center; }
 .modal p { white-space: pre-line; }
+.credit { color: var(--mu); font-size: 12px; text-align: center; margin: 10px 0 0; }
+.credit a { color: var(--ac2); }
+.thumb.wide { width: 74px; height: 46px; }
