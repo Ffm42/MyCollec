@@ -240,7 +240,7 @@ function viewHome() {
       ${OWN_CATS.map(c => tile(`#/liste/${c}`, CATS[c].icon, CATS[c].label, n(c, 'possede'))).join('')}
       ${tile('#/backlog', '🕹️', 'Backlog JV', state.items.filter(i => i.backlog && i.cat === 'jeu' && i.list === 'possede').length)}
       ${tile('#/cinema', CATS.cinema.icon, 'Mon cinéma', n('cinema', 'vu'))}
-      ${tile('#/envies/film', '✨', 'Mes envies', state.items.filter(i => i.list === 'envie').length)}
+      ${tile('#/envies/film', '✨', 'Wishlist', state.items.filter(i => i.list === 'envie').length)}
     </div>`,
   });
 }
@@ -251,7 +251,7 @@ function viewAdd(step) {
   if (step === 'collection' || step === 'envie') {
     const cats = step === 'collection' ? OWN_CATS : WISH_CATS;
     page({
-      title: step === 'collection' ? 'Ajouter à ma collection' : 'Ajouter une envie', back: '#/ajouter',
+      title: step === 'collection' ? 'Ajouter à ma collection' : 'Ajouter à la Wishlist', back: '#/ajouter',
       body: `<div class="choices">${cats.map(c => btn(`#/nouveau/${step === 'collection' ? 'possede' : 'envie'}/${c}`, CATS[c].icon, c === 'cinema' ? 'Film à voir au ciné' : CATS[c].short)).join('')}</div>`,
     });
     return;
@@ -260,7 +260,7 @@ function viewAdd(step) {
     title: 'Ajouter', back: '#/',
     body: `<div class="choices big">
       ${btn('#/ajouter/collection', '📦', 'Collection')}
-      ${btn('#/ajouter/envie', '✨', 'Envie')}
+      ${btn('#/ajouter/envie', '✨', 'Wishlist')}
       ${btn('#/nouveau/vu/cinema', '🎟️', 'Cinéma')}
       ${btn('#/backlog/ajouter', '🕹️', 'Backlog JV')}
     </div>`,
@@ -344,15 +344,17 @@ function viewWishes(cat) {
   const list = state.items.filter(i => i.cat === cat && i.list === 'envie').sort(wishSort);
   const tabs = WISH_CATS.map(c => `<a class="tab ${c === cat ? 'on' : ''}" href="#/envies/${c}">${CATS[c].short}</a>`).join('');
   page({
-    title: 'Mes envies', back: '#/', fab: `#/nouveau/envie/${cat}`,
+    title: 'Wishlist', back: '#/', fab: `#/nouveau/envie/${cat}`,
     body: `<nav class="tabs">${tabs}</nav>
       ${list.length ? `<div class="rows">${list.map(i => `
-        <a class="row" href="#/fiche/${i.id}">
+        <a class="row ${cat === 'cinema' ? 'cine' : ''}" href="#/fiche/${i.id}">
+          ${cat === 'cinema' ? `<span class="thumb" data-poster="${i.id}"></span>` : ''}
           <span class="rt">${esc(i.title)}
             <small>${[cat === 'amiibo' ? 'N° ' + i.number : '', cat === 'jeu' ? i.console : '', hasSupport(cat) ? i.support : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
           <span class="rm">${i.release ? fmtDate(i.release) : 'N.C.'}</span>
-        </a>`).join('')}</div>` : '<p class="empty">Aucune envie dans cette catégorie.</p>'}`,
+        </a>`).join('')}</div>` : '<p class="empty">Rien dans la Wishlist pour cette catégorie.</p>'}`,
   });
+  $$('[data-poster]').forEach(async el => { const u = await posterUrl(el.dataset.poster); if (u) el.style.backgroundImage = `url("${u}")`; else el.textContent = '🎬'; });
 }
 
 /* ---------- Cinéma ---------- */
@@ -381,7 +383,7 @@ function viewCinema() {
       <div class="seg" id="cp">${[['', 'Tous'], ['cinema', 'Cinéma'], ['maison', 'Maison']].map(([k, l]) => `<button type="button" data-p="${k}" class="${(f.place || '') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <a class="btn primary block" href="#/cinema/image">🖼️ Créer l'image des affiches</a>
       <label class="btn ghost block">📥 Importer depuis Letterboxd<input type="file" accept=".csv,text/csv" id="lbf" hidden></label>
-      ${state.tmdb ? '<button class="btn ghost block" id="mp">🔎 Récupérer les affiches manquantes</button>' : ''}</div>
+      <button class="btn ghost block" id="mp">🔎 Récupérer les affiches manquantes</button></div>
       <div id="res"></div>`,
   });
   const draw = () => {
@@ -398,8 +400,8 @@ function viewCinema() {
   $('#cp').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; f.place = b.dataset.p; $$('#cp button').forEach(x => x.classList.toggle('on', x === b)); draw(); });
   if ($('#mp')) $('#mp').onclick = async () => {
     const todo = [];
-    for (const i of seenFilter()) if (!(await DB.get('posters', i.id))) todo.push(i);
-    if (!todo.length) { alertBox('Tous les films ont déjà une affiche.'); return; }
+    for (const i of state.items.filter(x => x.cat === 'cinema')) if (!(await DB.get('posters', i.id)) && (state.tmdb || i.tmdbPoster)) todo.push(i);
+    if (!todo.length) { alertBox(state.tmdb ? 'Tous les films ont déjà une affiche.' : 'Ajoute ta clé TMDB dans les Réglages pour chercher les affiches.'); return; }
     const r = await fetchPosters(todo);
     await modal({ title: 'Affiches', text: `${r.posters} trouvée${r.posters > 1 ? 's' : ''} sur ${todo.length}.${r.offline ? '\nTMDB inaccessible : vérifie ta connexion.' : ''}`, cancel: null });
     draw();
@@ -422,6 +424,7 @@ async function viewDetail(id) {
     h += row('Note', `${starsHtml(it.rating)} <span class="muted">${fmtRating(it.rating)}</span>`);
     if (it.genres?.length) h += row('Genres', chips(it.genres));
   } else if (it.list === 'envie') {
+    if (it.cat === 'cinema') h += `<div class="poster-big" id="pb"></div>`;
     if (it.cat === 'amiibo') h += row('Numéro', esc(it.number));
     if (it.cat === 'jeu') h += row('Console', esc(it.console));
     if (hasSupport(it.cat)) h += row('Support', esc(it.support));
@@ -447,7 +450,7 @@ async function viewDetail(id) {
   }
   const blBtn = it.cat === 'jeu' && it.list === 'possede' ? `<button class="btn ghost block" id="bl">${it.backlog ? '➖ Retirer du backlog' : '🕹️ Ajouter au backlog'}</button>` : '';
   const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '';
-  const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Envie · ' + CATS[it.cat].short : 'Film vu';
+  const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Wishlist · ' + CATS[it.cat].short : 'Film vu';
   page({
     title: '', back: backOf(it),
     right: `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
@@ -456,10 +459,10 @@ async function viewDetail(id) {
       <div class="actions">${convert}${blBtn}
         <button class="btn danger-ghost block" id="del">Supprimer</button></div>`,
   });
-  if (it.list === 'vu') { const u = await posterUrl(it.id); $('#pb').innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'affiche</div>'; }
+  if ($('#pb')) { const u = await posterUrl(it.id); $('#pb').innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'affiche</div>'; }
   if ($('#bl')) $('#bl').onclick = async () => { it.backlog = !it.backlog; await saveItem(it); toast(it.backlog ? 'Ajouté au backlog' : 'Retiré du backlog'); viewDetail(it.id); };
   $('#del').onclick = async () => {
-    const msg = it.list === 'envie' ? `Retirer « ${it.title} » de mes envies ?` : `Supprimer définitivement « ${it.title} » ?`;
+    const msg = it.list === 'envie' ? `Retirer « ${it.title} » de la Wishlist ?` : `Supprimer définitivement « ${it.title} » ?`;
     if (await confirmBox(msg)) { await deleteItem(it.id); toast('Supprimé'); location.hash = backOf(it); }
   };
 }
@@ -477,25 +480,28 @@ async function viewForm(existing, convert, listArg, catArg) {
   const genres = new Set(it.genres || []);
   let rating = it.rating || 0;
   let poster = undefined; // undefined = inchangé, null = supprimé, Blob = nouveau
+  let posterMeta = null;  // { src: 'manual' } ou { src: 'tmdb', path }
   if (target === 'vu' && !it.seenDate) it.seenDate = today();
 
   const title = convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter à ma collection')
-    : (isNew ? (target === 'envie' ? 'Nouvelle envie' : target === 'vu' ? 'Film vu' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
+    : (isNew ? (target === 'envie' ? 'Ajouter à la Wishlist' : target === 'vu' ? 'Film vu' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
 
   const field = (label, inner, req = false) => `<label class="fld"><span class="lbl">${label}${req ? ' <b>*</b>' : ''}</span>${inner}</label>`;
   const opt = (arr, cur) => arr.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('');
   let h = field(cat === 'amiibo' ? 'Nom' : 'Titre', `<input class="inp" name="title" value="${esc(it.title)}" autocomplete="off" required>`, true);
   if (cat === 'amiibo') h += field('Numéro', `<input class="inp" name="number" inputmode="numeric" value="${esc(it.number)}" autocomplete="off">`, true);
 
+  const posterBlock = `<div class="fld"><span class="lbl">Affiche</span><div class="poster-edit"><div class="poster-prev" id="pp"></div>
+      <div class="pbtns"><label class="btn ghost">Choisir une image<input type="file" accept="image/*" id="pf" hidden></label>
+      ${state.tmdb ? '<button type="button" class="btn ghost" id="ptm">🔎 Chercher sur TMDB</button>' : ''}
+      <button type="button" class="btn danger-ghost" id="prm">Retirer</button></div></div></div>`;
+  const hasPoster = target === 'vu' || (target === 'envie' && cat === 'cinema');
   if (target === 'vu') {
     h += field('Date de visionnage', `<input class="inp" type="date" name="seenDate" value="${esc(it.seenDate)}">`, true);
     h += `<div class="fld"><span class="lbl">Lieu</span><div class="seg two" id="pl">${Object.entries(PLACES).map(([k, l]) => `<button type="button" data-p="${k}" class="${placeOf(it) === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
     h += field('Année de sortie', `<input class="inp" type="number" inputmode="numeric" name="year" min="1890" max="2100" placeholder="Facultatif, aide à trouver l'affiche" value="${esc(it.year)}">`);
     h += `<div class="fld"><span class="lbl">Note</span><div class="rate">${starsHtml(rating, 'lg')}<span class="muted" id="rv">${fmtRating(rating)}</span><button type="button" class="link" id="rclr">Effacer</button></div></div>`;
-    h += `<div class="fld"><span class="lbl">Affiche</span><div class="poster-edit"><div class="poster-prev" id="pp"></div>
-      <div class="pbtns"><label class="btn ghost">Choisir une image<input type="file" accept="image/*" id="pf" hidden></label>
-      ${state.tmdb ? '<button type="button" class="btn ghost" id="ptm">🔎 Chercher sur TMDB</button>' : ''}
-      <button type="button" class="btn danger-ghost" id="prm">Retirer</button></div></div></div>`;
+    h += posterBlock;
   }
   if (target !== 'envie' && hasGenre(cat)) {
     h += `<div class="fld"><span class="lbl">Genres${target === 'possede' ? ' <b>*</b>' : ''}</span><div id="gp"></div></div>`;
@@ -514,6 +520,7 @@ async function viewForm(existing, convert, listArg, catArg) {
       <input class="inp" type="number" inputmode="numeric" name="ryear" placeholder="AAAA" min="1900" max="2100" value="${mode === 'year' ? r : ''}" ${mode === 'year' ? '' : 'hidden'}>
       <input class="inp" type="date" name="rdate" value="${mode === 'date' ? r : ''}" ${mode === 'date' ? '' : 'hidden'}></div>`;
   }
+  if (target === 'envie' && cat === 'cinema') h += posterBlock;
   if (target === 'possede') {
     if (cat === 'film') h += field('Durée (minutes)', `<input class="inp" type="number" inputmode="numeric" name="duration" min="1" value="${esc(it.duration)}">`);
     if (cat === 'livre') h += field('Nombre de pages', `<input class="inp" type="number" inputmode="numeric" name="pages" min="1" value="${esc(it.pages)}">`);
@@ -602,16 +609,18 @@ async function viewForm(existing, convert, listArg, catArg) {
     show(isNew ? null : await posterUrl(it.id));
     $('#pf').addEventListener('change', async e => {
       const f = e.target.files[0]; if (!f) return;
-      try { poster = await resizeImage(f); show(URL.createObjectURL(poster)); } catch (err) { alertBox("Impossible de lire l'image."); }
+      try { poster = await resizeImage(f); posterMeta = { src: 'manual' }; show(URL.createObjectURL(poster)); } catch (err) { alertBox("Impossible de lire l'image."); }
     });
-    $('#prm').onclick = () => { poster = null; show(null); };
+    $('#prm').onclick = () => { poster = null; posterMeta = null; show(null); };
     if ($('#ptm')) $('#ptm').onclick = async () => {
+      const yearField = frm.elements.year;
+      const yr = yearField ? yearField.value.trim() : (frm.elements.ryear && !frm.elements.ryear.hidden ? frm.elements.ryear.value : frm.elements.rdate && !frm.elements.rdate.hidden ? frm.elements.rdate.value.slice(0, 4) : '');
       const t = frm.elements.title.value.trim(); if (!t) { alertBox("Saisis d'abord le titre."); return; }
       $('#ptm').disabled = true; $('#ptm').textContent = 'Recherche…';
       try {
-        const r = await TMDB.find(t, frm.elements.year.value.trim());
+        const r = await TMDB.find(t, yr);
         if (!r) { alertBox('Aucune affiche trouvée sur TMDB pour ce titre.'); }
-        else { poster = r.blob; show(URL.createObjectURL(poster)); if (r.year && !frm.elements.year.value) frm.elements.year.value = r.year; if (!genres.size && r.genres.length) { r.genres.forEach(g => genres.add(g)); genrePicker($('#gp'), cat, genres); } }
+        else { poster = r.blob; posterMeta = { src: 'tmdb', path: r.posterPath }; show(URL.createObjectURL(poster)); if (r.year && yearField && !yearField.value) yearField.value = r.year; if ($('#gp') && !genres.size && r.genres.length) { r.genres.forEach(g => genres.add(g)); genrePicker($('#gp'), cat, genres); } }
       } catch (err) { alertBox('TMDB inaccessible (connexion internet ?)'); }
       $('#ptm').disabled = false; $('#ptm').textContent = '🔎 Chercher sur TMDB';
     };
@@ -645,6 +654,10 @@ async function viewForm(existing, convert, listArg, catArg) {
     if (hasSupport(cat)) it.support = val('support');
     if ($('#gp')) it.genres = [...genres].sort(coll.compare);
     if (target === 'envie') it.release = release;
+    if (target === 'envie' && cat === 'cinema' && poster === undefined && isNew && state.tmdb) {
+      toast("Recherche de l'affiche…");
+      try { const r = await TMDB.find(it.title, release.slice(0, 4)); if (r) { poster = r.blob; posterMeta = { src: 'tmdb', path: r.posterPath }; } } catch (err) { /* hors ligne */ }
+    }
     if (target === 'vu') {
       it.seenDate = val('seenDate'); it.rating = rating; it.place = place; it.year = val('year');
       // Affiche automatique pour un nouveau film sans affiche
@@ -652,7 +665,7 @@ async function viewForm(existing, convert, listArg, catArg) {
         toast("Recherche de l'affiche…");
         try {
           const r = await TMDB.find(it.title, it.year);
-          if (r) { poster = r.blob; if (!it.year) it.year = r.year; if (!genres.size && r.genres.length) it.genres = r.genres; }
+          if (r) { poster = r.blob; posterMeta = { src: 'tmdb', path: r.posterPath }; if (!it.year) it.year = r.year; if (!genres.size && r.genres.length) it.genres = r.genres; }
         } catch (err) { /* hors ligne : on enregistre sans affiche */ }
       }
     }
@@ -667,6 +680,8 @@ async function viewForm(existing, convert, listArg, catArg) {
     }
     if (poster !== undefined) {
       if (poster) await DB.put('posters', poster, it.id); else await DB.del('posters', it.id);
+      it.posterSrc = poster ? (posterMeta?.src || 'manual') : '';
+      it.tmdbPoster = poster && posterMeta?.src === 'tmdb' ? posterMeta.path : '';
       dropPosterUrl(it.id);
     }
     await saveItem(it);
@@ -842,11 +857,16 @@ const TMDB = {
     if (!m && year) m = await this.search(title, '', key);
     if (!m) return null;
     const res = { title: m.title, year: (m.release_date || '').slice(0, 4), genres: [...new Set((m.genre_ids || []).map(g => TMDB_GENRES[g]).filter(Boolean))] };
+    res.posterPath = m.poster_path;
     if (noImage) return res;
-    const ir = await fetch('https://image.tmdb.org/t/p/w500' + m.poster_path);
-    if (!ir.ok) throw new Error('image ' + ir.status);
-    res.blob = await resizeImage(await ir.blob());
+    res.blob = await this.image(m.poster_path);
     return res;
+  },
+  // Télécharge une affiche à partir de son chemin TMDB (aucune clé nécessaire)
+  async image(path) {
+    const ir = await fetch('https://image.tmdb.org/t/p/w500' + path);
+    if (!ir.ok) throw new Error('image ' + ir.status);
+    return resizeImage(await ir.blob());
   },
 };
 
@@ -858,11 +878,16 @@ async function fetchPosters(list) {
     const it = list[k];
     pg.set(`Affiches : ${k + 1} / ${list.length}\n${it.title}`);
     try {
-      const r = await TMDB.find(it.title, it.year);
+      if (it.tmdbPoster) {
+        await DB.put('posters', await TMDB.image(it.tmdbPoster), it.id); dropPosterUrl(it.id);
+        it.posterSrc = 'tmdb'; await saveItem(it); posters++; continue;
+      }
+      const r = state.tmdb ? await TMDB.find(it.title, it.year) : null;
       if (r) {
         await DB.put('posters', r.blob, it.id); dropPosterUrl(it.id);
+        it.posterSrc = 'tmdb'; it.tmdbPoster = r.posterPath;
         if (!it.year) it.year = r.year;
-        if (!(it.genres || []).length && r.genres.length) it.genres = r.genres;
+        if (it.list === 'vu' && !(it.genres || []).length && r.genres.length) it.genres = r.genres;
         await saveItem(it); posters++;
       } else missing++;
     } catch (err) { offline = true; missing += list.length - k; break; }
@@ -1024,8 +1049,13 @@ const blobToDataUrl = b => new Promise(r => { const fr = new FileReader(); fr.on
 const dataUrlToBlob = async u => (await fetch(u)).blob();
 
 async function exportData() {
+  // Les affiches TMDB ne sont pas exportées : seul leur chemin est gardé, elles seront re-téléchargées à l'import
   const posters = {};
-  for (const id of await DB.keys('posters')) { const b = await DB.get('posters', id); if (b) posters[id] = await blobToDataUrl(b); }
+  for (const id of await DB.keys('posters')) {
+    const it = getItem(id);
+    if (it && it.posterSrc === 'tmdb' && it.tmdbPoster) continue;
+    const b = await DB.get('posters', id); if (b) posters[id] = await blobToDataUrl(b);
+  }
   const data = { app: 'ma-collection', version: 1, exportedAt: new Date().toISOString(), refs: state.refs, items: state.items, posters };
   const file = new File([JSON.stringify(data)], `ma-collection-${today()}.json`, { type: 'application/json' });
   await shareFile(file);
@@ -1058,13 +1088,20 @@ async function importData(file) {
   for (const [id, u] of Object.entries(data.posters || {})) if (mode === 'replace' || !(await DB.get('posters', id))) await DB.put('posters', await dataUrlToBlob(u), id);
   state.posterUrls.forEach(u => u && URL.revokeObjectURL(u)); state.posterUrls.clear();
   await loadAll();
-  toast(mode === 'replace' ? 'Sauvegarde importée' : `${added} élément${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''}`);
+  const todo = [];
+  for (const i of state.items) if (i.tmdbPoster && !(await DB.get('posters', i.id))) todo.push(i);
+  let extra = '';
+  if (todo.length) {
+    const r = await fetchPosters(todo);
+    extra = r.offline ? ` · ${todo.length - r.posters} affiche(s) à récupérer plus tard (pas de connexion)` : ` · ${r.posters} affiche${r.posters > 1 ? 's' : ''} téléchargée${r.posters > 1 ? 's' : ''}`;
+  }
+  toast((mode === 'replace' ? 'Sauvegarde importée' : `${added} élément${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''}`) + extra);
   location.hash = '#/';
   render();
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.0.2';
+const APP_VERSION = '2.2.0';
 (async () => {
   await DB.open();
   await loadAll();

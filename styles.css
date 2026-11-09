@@ -153,7 +153,7 @@ input[type=date].inp { min-height: 46px; }
 .modal h3 { margin: 0; font-size: 17px; }
 .modal p { margin: 0; color: var(--tx); }
 .modal-btns { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; }
-.toast { white-space: nowrap; position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); background: #f2f2f7; color: #111; padding: 10px 16px; border-radius: 999px; font-weight: 600; opacity: 0; transition: .25s; z-index: 120; }
+.toast { max-width: 88vw; text-align: center; position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px); background: #f2f2f7; color: #111; padding: 10px 16px; border-radius: 999px; font-weight: 600; opacity: 0; transition: .25s; z-index: 120; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .update { position: fixed; left: 12px; right: 12px; bottom: calc(92px + env(safe-area-inset-bottom)); background: var(--bg3); border: 1px solid var(--ac); border-radius: 14px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; z-index: 110; }
 
