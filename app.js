@@ -217,6 +217,7 @@ async function render() {
     if (v === 'edition') return viewForm(getItem(a), b === 'convertir');
     if (v === 'nouveau') return viewForm(null, false, a, b);
     if (v === 'ajouter') return viewAdd(a);
+    if (v === 'backlog') return viewBacklog(a === 'ajouter');
     if (v === 'cinema' && a === 'image') return viewImage();
     if (v === 'cinema') return viewCinema();
     if (v === 'envies') return viewWishes(WISH_CATS.includes(a) ? a : 'film');
@@ -235,6 +236,7 @@ function viewHome() {
     fab: '#/ajouter',
     body: `<div class="tiles">
       ${OWN_CATS.map(c => tile(`#/liste/${c}`, CATS[c].icon, CATS[c].label, n(c, 'possede'))).join('')}
+      ${tile('#/backlog', '🕹️', 'Backlog JV', state.items.filter(i => i.backlog && i.cat === 'jeu' && i.list === 'possede').length)}
       ${tile('#/cinema', CATS.cinema.icon, 'Mon cinéma', n('cinema', 'vu'))}
       ${tile('#/envies/film', '✨', 'Mes envies', state.items.filter(i => i.list === 'envie').length)}
     </div>`,
@@ -258,6 +260,7 @@ function viewAdd(step) {
       ${btn('#/ajouter/collection', '📦', 'Collection')}
       ${btn('#/ajouter/envie', '✨', 'Envie')}
       ${btn('#/nouveau/vu/cinema', '🎟️', 'Cinéma')}
+      ${btn('#/backlog/ajouter', '🕹️', 'Backlog JV')}
     </div>`,
   });
 }
@@ -298,6 +301,39 @@ function viewList(cat) {
         </a>`).join('')}</div>` : `<p class="empty">Rien à afficher.</p>`);
   };
   $$('[data-f]').forEach(el => el.addEventListener('input', () => { f[el.dataset.f] = el.value; draw(); }));
+  draw();
+}
+
+/* ---------- Backlog JV ---------- */
+function viewBacklog(pick) {
+  const f = state.filters[pick ? 'blpick' : 'backlog'] ||= { q: '', console: '' };
+  const games = state.items.filter(i => i.cat === 'jeu' && i.list === 'possede' && (pick ? !i.backlog : i.backlog));
+  page({
+    title: pick ? 'Ajouter au backlog' : 'Backlog JV', back: pick ? '#/backlog' : '#/', fab: pick ? null : '#/backlog/ajouter',
+    body: `<div class="filters">
+        <input class="inp" type="search" placeholder="Rechercher un titre…" id="bq" value="${esc(f.q)}">
+        <div class="frow"><select class="inp" id="bc"><option value="">Toutes consoles</option>${state.refs.consoles.map(c => `<option ${f.console === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      </div>
+      ${pick ? '<p class="muted small">Touche un jeu de ta collection pour l\'ajouter au backlog.</p>' : ''}
+      <div id="res"></div>`,
+  });
+  const draw = () => {
+    const q = norm(f.q);
+    const list = games.filter(i => (!q || norm(i.title).includes(q)) && (!f.console || i.console === f.console))
+      .sort((a, b) => coll.compare(a.title, b.title) || coll.compare(prefix(a), prefix(b)));
+    const badge = i => (i.borrowed ? '<span class="badge alt">Emprunté</span>' : i.loaned ? '<span class="badge">Prêté</span>' : '');
+    $('#res').innerHTML = `<p class="count">${list.length} jeu${list.length > 1 ? 'x' : ''}</p>` + (list.length ? `<div class="rows">${list.map(i => `
+      <a class="row" ${pick ? `data-add="${i.id}"` : `href="#/fiche/${i.id}"`}>
+        <span class="rt"><span class="pre">${esc(prefix(i))}</span> ${esc(i.title)}</span>${badge(i)}${pick ? '<span class="addic">＋</span>' : ''}
+      </a>`).join('')}</div>` : `<p class="empty">${pick ? 'Aucun jeu à ajouter.' : 'Ton backlog est vide. Touche + pour y ajouter des jeux.'}</p>`);
+  };
+  if (pick) $('#res').addEventListener('click', async e => {
+    const r = e.target.closest('[data-add]'); if (!r) return;
+    const it = getItem(r.dataset.add); it.backlog = true; await saveItem(it);
+    games.splice(games.indexOf(it), 1); toast(`« ${it.title} » ajouté au backlog`); draw();
+  });
+  $('#bq').addEventListener('input', e => { f.q = e.target.value; draw(); });
+  $('#bc').addEventListener('change', e => { f.console = e.target.value; draw(); });
   draw();
 }
 
@@ -390,6 +426,7 @@ async function viewDetail(id) {
       if (it.loanDate) h += row('Date du prêt', esc(fmtDate(it.loanDate)));
     }
   }
+  const blBtn = it.cat === 'jeu' && it.list === 'possede' ? `<button class="btn ghost block" id="bl">${it.backlog ? '➖ Retirer du backlog' : '🕹️ Ajouter au backlog'}</button>` : '';
   const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '';
   const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Envie · ' + CATS[it.cat].short : 'Vu au cinéma';
   page({
@@ -397,10 +434,11 @@ async function viewDetail(id) {
     right: `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
     body: `<p class="kicker">${esc(sub)}</p><h2 class="title">${esc(it.title)}</h2>
       <div class="fiche">${h}</div>
-      <div class="actions">${convert}
+      <div class="actions">${convert}${blBtn}
         <button class="btn danger-ghost block" id="del">Supprimer</button></div>`,
   });
   if (it.list === 'vu') { const u = await posterUrl(it.id); $('#pb').innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'affiche</div>'; }
+  if ($('#bl')) $('#bl').onclick = async () => { it.backlog = !it.backlog; await saveItem(it); toast(it.backlog ? 'Ajouté au backlog' : 'Retiré du backlog'); viewDetail(it.id); };
   $('#del').onclick = async () => {
     const msg = it.list === 'envie' ? `Retirer « ${it.title} » de mes envies ?` : `Supprimer définitivement « ${it.title} » ?`;
     if (await confirmBox(msg)) { await deleteItem(it.id); toast('Supprimé'); location.hash = backOf(it); }
@@ -859,7 +897,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 (async () => {
   await DB.open();
   await loadAll();

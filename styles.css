@@ -162,3 +162,5 @@ input[type=date].inp { min-height: 46px; }
 .choices.big { grid-template-columns: 1fr; }
 .choices.big .choice { padding: 22px 18px; font-size: 18px; }
 .choices.big .choice span { font-size: 30px; }
+.addic { color: var(--ac2); font-size: 22px; font-weight: 700; }
+.row[data-add] { cursor: pointer; }
