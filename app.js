@@ -284,9 +284,12 @@ function viewAdd(step) {
 
 /* ---------- Liste des possessions ---------- */
 function viewList(cat) {
-  const f = state.filters[cat] ||= { q: '', genre: '', support: '', console: '' };
+  const f = state.filters[cat] ||= { q: '', genre: '', support: '', console: '', loan: '' };
   const items = state.items.filter(i => i.cat === cat && i.list === 'possede');
   const usedGenres = [...new Set(items.flatMap(i => i.genres || []))].sort(coll.compare);
+  // Filtre prêtés / empruntés : seulement les options présentes dans cette liste
+  const loanOpts = [['loaned', 'Prêtés', items.some(i => i.loaned)], ['borrowed', 'Empruntés', items.some(i => i.borrowed)]].filter(o => o[2]);
+  if (!loanOpts.some(o => o[0] === f.loan)) f.loan = '';
   const sel = (key, label, opts) => `<select class="inp" data-f="${key}"><option value="">${label}</option>${opts.map(o => `<option ${f[key] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
   page({
     title: CATS[cat].label, back: '#/', fab: `#/nouveau/possede/${cat}`,
@@ -297,6 +300,7 @@ function viewList(cat) {
           ${hasSupport(cat) ? sel('support', 'Tous supports', supportsFor(cat).map(s => s.name)) : ''}
           ${cat === 'jeu' ? sel('console', 'Toutes consoles', state.refs.consoles) : ''}
         </div>
+        ${loanOpts.length ? `<div class="frow"><select class="inp" data-f="loan"><option value="">Prêtés et empruntés : tous</option>${loanOpts.map(([v, l]) => `<option value="${v}" ${f.loan === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>` : ''}
         ${PROVIDER[cat] ? `<button class="btn ghost block" id="mp">🔎 Récupérer les ${IMG_LABEL(cat).toLowerCase()}s manquantes</button>` : ''}
       </div>
       <div id="res"></div>
@@ -315,7 +319,8 @@ function viewList(cat) {
       (!q || norm(i.title).includes(q) || (cat === 'amiibo' && String(i.number) === q)) &&
       (!f.genre || (i.genres || []).includes(f.genre)) &&
       (!f.support || i.support === f.support) &&
-      (!f.console || i.console === f.console)
+      (!f.console || i.console === f.console) &&
+      (!f.loan || (f.loan === 'loaned' ? i.loaned : i.borrowed))
     ).sort((a, b) => coll.compare(a.title, b.title) || coll.compare(prefix(a), prefix(b)));
     const badge = i => (i.borrowed ? '<span class="badge alt">Emprunté</span>' : i.loaned ? '<span class="badge">Prêté</span>' : '');
     $('#res').innerHTML = `<p class="count">${list.length} ${list.length > 1 ? 'résultats' : 'résultat'}</p>` +
@@ -467,6 +472,7 @@ async function viewDetail(id) {
     if (it.location) h += row('Emplacement', esc(it.location));
     if (it.borrowed) {
       h += row("On me l'a prêté", 'Oui');
+      if (it.borrowedFrom) h += row('Prêté par', esc(it.borrowedFrom));
       if (it.borrowedDate) h += row('Depuis le', esc(fmtDate(it.borrowedDate)));
     }
     if (it.loaned) {
@@ -564,6 +570,7 @@ async function viewForm(existing, convert, listArg, catArg) {
     h += field('Emplacement', `<input class="inp" name="location" value="${esc(it.location)}" autocomplete="off">`);
     h += `<label class="fld check"><input type="checkbox" name="borrowed" ${it.borrowed ? 'checked' : ''}> <span>On me l'a prêté</span></label>
       <div id="borrowbox" ${it.borrowed ? '' : 'hidden'}>
+        ${field("Prêté par", `<input class="inp" name="borrowedFrom" value="${esc(it.borrowedFrom)}" autocomplete="off">`)}
         ${field("Date à laquelle on me l'a prêté", `<input class="inp" type="date" name="borrowedDate" value="${esc(it.borrowedDate)}">`)}
       </div>
       <label class="fld check" id="loanchk" ${it.borrowed ? 'hidden' : ''}><input type="checkbox" name="loaned" ${it.loaned && !it.borrowed ? 'checked' : ''}> <span>Je l'ai prêté</span></label>
@@ -716,6 +723,7 @@ async function viewForm(existing, convert, listArg, catArg) {
       if (cat === 'livre') it.pages = val('pages') ? +val('pages') : '';
       it.borrowed = E.borrowed.checked;
       it.borrowedDate = it.borrowed ? val('borrowedDate') : '';
+      it.borrowedFrom = it.borrowed ? val('borrowedFrom') : '';
       it.loaned = !it.borrowed && E.loaned.checked;
       if (!it.loaned) { it.loanedTo = ''; it.loanDate = ''; }
     }
@@ -1230,7 +1238,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.5.0';
 (async () => {
   await DB.open();
   await loadAll();
