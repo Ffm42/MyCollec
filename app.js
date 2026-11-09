@@ -6,7 +6,7 @@ const CATS = {
   jeu:     { label: 'Mes jeux vidéo',     short: 'Jeux vidéo',      one: 'jeu vidéo',        icon: '🎮' },
   societe: { label: 'Mes jeux de société', short: 'Jeux de société', one: 'jeu de société',  icon: '🎲' },
   livre:   { label: 'Mes livres',         short: 'Livres',          one: 'livre',            icon: '📚' },
-  amiibo:  { label: 'Mes Amiibo',         short: 'Amiibo',          one: 'amiibo',           icon: '🍄' },
+  amiibo:  { label: 'Mes Amiibo',         short: 'Amiibo',          one: 'amiibo',           icon: '<img src="icons/amiibo.png" class="ico-img" alt="amiibo">' },
   cinema:  { label: 'Mon cinéma',         short: 'Cinéma',          one: 'film au cinéma',   icon: '🎟️' },
 };
 const OWN_CATS = ['film', 'jeu', 'societe', 'livre', 'amiibo'];
@@ -897,7 +897,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 (async () => {
   await DB.open();
   await loadAll();

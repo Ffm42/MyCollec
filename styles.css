@@ -164,3 +164,5 @@ input[type=date].inp { min-height: 46px; }
 .choices.big .choice span { font-size: 30px; }
 .addic { color: var(--ac2); font-size: 22px; font-weight: 700; }
 .row[data-add] { cursor: pointer; }
+.ico-img { height: 30px; width: auto; display: block; }
+.choice .ico-img { height: 20px; }

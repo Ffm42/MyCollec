@@ -1,7 +1,7 @@
 // Changer ce numéro à chaque mise à jour pour que l'iPhone récupère la nouvelle version
-const CACHE = 'ma-collection-v1.3.0';
+const CACHE = 'ma-collection-v1.3.1';
 const ASSETS = ['./', './index.html', './app.js', './seed.js', './styles.css', './manifest.webmanifest',
-  './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
+  './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png', './icons/amiibo.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
