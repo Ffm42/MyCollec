@@ -159,3 +159,6 @@ input[type=date].inp { min-height: 46px; }
 
 .badge.alt { background: #4fd1c5; }
 .modal-col { display: grid; gap: 8px; }
+.choices.big { grid-template-columns: 1fr; }
+.choices.big .choice { padding: 22px 18px; font-size: 18px; }
+.choices.big .choice span { font-size: 30px; }

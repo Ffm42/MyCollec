@@ -1,5 +1,5 @@
 // Changer ce numéro à chaque mise à jour pour que l'iPhone récupère la nouvelle version
-const CACHE = 'ma-collection-v1.1.0';
+const CACHE = 'ma-collection-v1.2.0';
 const ASSETS = ['./', './index.html', './app.js', './seed.js', './styles.css', './manifest.webmanifest',
   './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 

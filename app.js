@@ -216,7 +216,7 @@ async function render() {
     if (v === 'fiche') return viewDetail(a);
     if (v === 'edition') return viewForm(getItem(a), b === 'convertir');
     if (v === 'nouveau') return viewForm(null, false, a, b);
-    if (v === 'ajouter') return viewAdd();
+    if (v === 'ajouter') return viewAdd(a);
     if (v === 'cinema' && a === 'image') return viewImage();
     if (v === 'cinema') return viewCinema();
     if (v === 'envies') return viewWishes(WISH_CATS.includes(a) ? a : 'film');
@@ -242,16 +242,23 @@ function viewHome() {
 }
 
 /* ---------- Choix d'ajout (+) ---------- */
-function viewAdd() {
+function viewAdd(step) {
   const btn = (href, icon, label) => `<a class="choice" href="${href}"><span>${icon}</span>${label}</a>`;
+  if (step === 'collection' || step === 'envie') {
+    const cats = step === 'collection' ? OWN_CATS : WISH_CATS;
+    page({
+      title: step === 'collection' ? 'Ajouter à ma collection' : 'Ajouter une envie', back: '#/ajouter',
+      body: `<div class="choices">${cats.map(c => btn(`#/nouveau/${step === 'collection' ? 'possede' : 'envie'}/${c}`, CATS[c].icon, c === 'cinema' ? 'Film à voir au ciné' : CATS[c].short)).join('')}</div>`,
+    });
+    return;
+  }
   page({
     title: 'Ajouter', back: '#/',
-    body: `<h2 class="sec">Dans mes possessions</h2>
-      <div class="choices">${OWN_CATS.map(c => btn(`#/nouveau/possede/${c}`, CATS[c].icon, CATS[c].short)).join('')}</div>
-      <h2 class="sec">Dans mes envies</h2>
-      <div class="choices">${WISH_CATS.map(c => btn(`#/nouveau/envie/${c}`, CATS[c].icon, c === 'cinema' ? 'Film à voir au ciné' : CATS[c].short)).join('')}</div>
-      <h2 class="sec">Au cinéma</h2>
-      <div class="choices">${btn('#/nouveau/vu/cinema', '🎟️', 'Film vu au cinéma')}</div>`,
+    body: `<div class="choices big">
+      ${btn('#/ajouter/collection', '📦', 'Collection')}
+      ${btn('#/ajouter/envie', '✨', 'Envie')}
+      ${btn('#/nouveau/vu/cinema', '🎟️', 'Cinéma')}
+    </div>`,
   });
 }
 
@@ -383,7 +390,7 @@ async function viewDetail(id) {
       if (it.loanDate) h += row('Date du prêt', esc(fmtDate(it.loanDate)));
     }
   }
-  const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à mes possessions'}</a>` : '';
+  const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '';
   const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Envie · ' + CATS[it.cat].short : 'Vu au cinéma';
   page({
     title: '', back: backOf(it),
@@ -415,7 +422,7 @@ async function viewForm(existing, convert, listArg, catArg) {
   let poster = undefined; // undefined = inchangé, null = supprimé, Blob = nouveau
   if (target === 'vu' && !it.seenDate) it.seenDate = today();
 
-  const title = convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter aux possessions')
+  const title = convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter à ma collection')
     : (isNew ? (target === 'envie' ? 'Nouvelle envie' : target === 'vu' ? 'Film vu au cinéma' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
 
   const field = (label, inner, req = false) => `<label class="fld"><span class="lbl">${label}${req ? ' <b>*</b>' : ''}</span>${inner}</label>`;
@@ -581,7 +588,7 @@ async function viewForm(existing, convert, listArg, catArg) {
       dropPosterUrl(it.id);
     }
     await saveItem(it);
-    toast(convert ? (target === 'vu' ? 'Ajouté à Mon cinéma' : 'Ajouté à mes possessions') : 'Enregistré');
+    toast(convert ? (target === 'vu' ? 'Ajouté à Mon cinéma' : 'Ajouté à ma collection') : 'Enregistré');
     location.hash = isNew ? backOf(it) : `#/fiche/${it.id}`;
   });
 }
@@ -852,7 +859,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 (async () => {
   await DB.open();
   await loadAll();
