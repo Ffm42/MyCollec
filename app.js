@@ -10,7 +10,7 @@ const CATS = {
   cinema:  { label: 'Mon cinéma',         short: 'Cinéma',          one: 'film au cinéma',   icon: '🎟️' },
 };
 const OWN_CATS = ['film', 'jeu', 'societe', 'livre', 'amiibo'];
-const WISH_CATS = ['film', 'jeu', 'societe', 'livre', 'amiibo', 'cinema'];
+const WISH_CATS = ['cinema', 'jeu', 'film', 'amiibo', 'livre', 'societe'];
 const SUPPORT_CATS = ['film', 'jeu', 'livre'];          // catégories qui ont un support
 const GENRE_CATS = ['film', 'jeu', 'livre', 'societe']; // le cinéma utilise les genres "film"
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -237,7 +237,7 @@ async function render() {
     if (v === 'backlog') return viewBacklog(a === 'ajouter');
     if (v === 'cinema' && a === 'image') return viewImage();
     if (v === 'cinema') return viewCinema();
-    if (v === 'envies') return viewWishes(WISH_CATS.includes(a) ? a : 'film');
+    if (v === 'envies') return viewWishes(WISH_CATS.includes(a) ? a : 'cinema');
     if (v === 'reglages') return viewSettings();
   } catch (e) { console.error(e); alertBox('Erreur : ' + e.message); }
   location.hash = '#/';
@@ -255,7 +255,7 @@ function viewHome() {
       ${OWN_CATS.map(c => tile(`#/liste/${c}`, CATS[c].icon, CATS[c].label, n(c, 'possede'))).join('')}
       ${tile('#/backlog', '🕹️', 'Backlog JV', state.items.filter(i => i.backlog && i.cat === 'jeu' && i.list === 'possede').length)}
       ${tile('#/cinema', CATS.cinema.icon, 'Mon cinéma', n('cinema', 'vu'))}
-      ${tile('#/envies/film', '✨', 'Wishlist', state.items.filter(i => i.list === 'envie').length)}
+      ${tile('#/envies/cinema', '✨', 'Wishlist', state.items.filter(i => i.list === 'envie').length)}
     </div>`,
   });
 }
@@ -1238,7 +1238,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.3';
 (async () => {
   await DB.open();
   await loadAll();
