@@ -173,3 +173,13 @@ input[type=date].inp { min-height: 46px; }
 .credit { color: var(--mu); font-size: 12px; text-align: center; margin: 10px 0 0; }
 .credit a { color: var(--ac2); }
 .thumb.wide { width: 74px; height: 46px; }
+.hcard { margin-top: 14px; }
+.hist { display: grid; }
+.hrow { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.hrow:last-child { border-bottom: 0; }
+.eprow { gap: 12px; }
+.epchk { width: 24px; height: 24px; flex: none; accent-color: var(--ac); }
+.eprow .rt { color: inherit; }
+.poster-big.small { max-width: 160px; }
+.tabn { opacity: .7; font-weight: 500; margin-left: 2px; }
+.nowrap { white-space: nowrap; align-self: center; }

@@ -6,11 +6,12 @@ const CATS = {
   jeu:     { label: 'Mes jeux vidéo',     short: 'Jeux vidéo',      one: 'jeu vidéo',        icon: '🎮' },
   societe: { label: 'Mes jeux de société', short: 'Jeux de société', one: 'jeu de société',  icon: '🎲' },
   livre:   { label: 'Mes livres',         short: 'Livres',          one: 'livre',            icon: '📚' },
+  serie:   { label: 'Mes séries',         short: 'Séries',          one: 'série',            icon: '📺' },
   amiibo:  { label: 'Mes Amiibo',         short: 'Amiibo',          one: 'amiibo',           icon: '<img src="icons/amiibo.png" class="ico-img" alt="amiibo">' },
   cinema:  { label: 'Mon cinéma',         short: 'Cinéma',          one: 'film au cinéma',   icon: '🎟️' },
 };
 const OWN_CATS = ['film', 'jeu', 'societe', 'livre', 'amiibo'];
-const WISH_CATS = ['cinema', 'jeu', 'film', 'amiibo', 'livre', 'societe'];
+const WISH_CATS = ['cinema', 'jeu', 'film', 'serie', 'amiibo', 'livre', 'societe'];
 const SUPPORT_CATS = ['film', 'jeu', 'livre'];          // catégories qui ont un support
 const GENRE_CATS = ['film', 'jeu', 'livre', 'societe']; // le cinéma utilise les genres "film"
 const MONTHS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
@@ -27,9 +28,9 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
 const fmtDate = d => { if (!d) return ''; const [y, m, j] = d.split('-'); return j ? `${j}/${m}/${y}` : y; };
 const gcat = cat => (cat === 'cinema' ? 'film' : cat);
 const hasSupport = cat => SUPPORT_CATS.includes(cat);
-const hasGenre = cat => cat !== 'amiibo';
-const IMG_CATS = ['film', 'cinema', 'jeu', 'livre', 'societe'];   // catégories avec image
-const PROVIDER = { film: 'tmdb', cinema: 'tmdb', jeu: 'rawg', livre: 'ol' }; // recherche automatique
+const hasGenre = cat => cat !== 'amiibo' && cat !== 'serie';
+const IMG_CATS = ['film', 'cinema', 'serie', 'jeu', 'livre', 'societe'];   // catégories avec image
+const PROVIDER = { film: 'tmdb', cinema: 'tmdb', serie: 'tmdb', jeu: 'rawg', livre: 'ol' }; // recherche automatique
 const PROV_NAME = { tmdb: 'TMDB', rawg: 'RAWG', ol: 'Open Library', igdb: 'IGDB' };
 const PROV_LINK = { tmdb: 'https://www.themoviedb.org', rawg: 'https://rawg.io', ol: 'https://openlibrary.org', igdb: 'https://www.igdb.com' };
 const IMG_LABEL = cat => (cat === 'societe' ? 'Photo' : cat === 'jeu' ? 'Jaquette' : cat === 'livre' ? 'Couverture' : 'Affiche');
@@ -161,7 +162,7 @@ function wishSort(a, b) {
 }
 const supportsFor = cat => state.refs.supports.filter(s => s.cats.includes(cat));
 const genresFor = cat => state.refs.genres.filter(g => g.cats.includes(gcat(cat))).sort((a, b) => coll.compare(a.name, b.name));
-const backOf = it => (it.list === 'possede' ? `#/liste/${it.cat}` : it.list === 'envie' ? `#/envies/${it.cat}` : '#/cinema');
+const backOf = it => (it.list === 'possede' ? `#/liste/${it.cat}` : it.list === 'envie' ? `#/envies/${it.cat}` : it.list === 'encours' ? `#/encours/${curTab(it)}` : it.cat === 'serie' ? '#/series' : '#/cinema');
 
 /* ================= Modales / toast ================= */
 function modal({ title = '', text = '', input = null, ok = 'OK', cancel = 'Annuler', danger = false }) {
@@ -226,12 +227,12 @@ function page({ title, back = null, right = '', body = '', fab = null }) {
 
 async function render() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
-  const [v, a, b] = parts;
+  const [v, a, b, c] = parts;
   try {
     if (!v) return viewHome();
     if (v === 'liste' && OWN_CATS.includes(a)) return viewList(a);
     if (v === 'fiche') return viewDetail(a);
-    if (v === 'edition') return viewForm(getItem(a), b === 'convertir');
+    if (v === 'edition') return viewForm(getItem(a), b === 'convertir' || b === 'encours', undefined, undefined, b === 'encours');
     if (v === 'nouveau') return viewForm(null, false, a, b);
     if (v === 'ajouter') return viewAdd(a);
     if (v === 'backlog') return viewBacklog(a === 'ajouter');
@@ -239,6 +240,11 @@ async function render() {
     if (v === 'cinema') return viewCinema();
     if (v === 'envies') return viewWishes(WISH_CATS.includes(a) ? a : 'cinema');
     if (v === 'reglages') return viewSettings();
+    if (v === 'series') return viewSeries();
+    if (v === 'serie') return b === 'saison' ? viewSeason(a, c) : viewSerie(a);
+    if (v === 'encours' && a === 'fiche') return viewCurItem(b);
+    if (v === 'encours' && a === 'ajouter') return viewCurAdd(b);
+    if (v === 'encours') return viewCur(CUR_CATS.includes(a) ? a : 'jeu');
   } catch (e) { console.error(e); alertBox('Erreur : ' + e.message); }
   location.hash = '#/';
 }
@@ -253,6 +259,8 @@ function viewHome() {
     fab: '#/ajouter',
     body: `<div class="tiles">
       ${OWN_CATS.map(c => tile(`#/liste/${c}`, CATS[c].icon, CATS[c].label, n(c, 'possede'))).join('')}
+      ${tile('#/series', CATS.serie.icon, 'Mes séries', n('serie', 'vu'))}
+      ${tile('#/encours/jeu', '▶️', 'En cours', CUR_CATS.reduce((t, c) => t + curItems(c).length, 0))}
       ${tile('#/backlog', '🕹️', 'Backlog JV', state.items.filter(i => i.backlog && i.cat === 'jeu' && i.list === 'possede').length)}
       ${tile('#/cinema', CATS.cinema.icon, 'Mon cinéma', n('cinema', 'vu'))}
       ${tile('#/envies/cinema', '✨', 'Wishlist', state.items.filter(i => i.list === 'envie').length)}
@@ -263,6 +271,10 @@ function viewHome() {
 /* ---------- Choix d'ajout (+) ---------- */
 function viewAdd(step) {
   const btn = (href, icon, label) => `<a class="choice" href="${href}"><span>${icon}</span>${label}</a>`;
+  if (step === 'encours') {
+    page({ title: 'Ajouter à En cours', back: '#/ajouter', body: `<div class="choices">${CUR_CATS.map(c => btn(`#/encours/ajouter/${c}`, (CATS[c] || CATS.film).icon, CUR_LABEL[c])).join('')}</div>` });
+    return;
+  }
   if (step === 'collection' || step === 'envie') {
     const cats = step === 'collection' ? OWN_CATS : WISH_CATS;
     page({
@@ -277,6 +289,8 @@ function viewAdd(step) {
       ${btn('#/ajouter/collection', '📦', 'Collection')}
       ${btn('#/ajouter/envie', '✨', 'Wishlist')}
       ${btn('#/nouveau/vu/cinema', '🎟️', 'Cinéma')}
+      ${btn('#/ajouter/encours', '▶️', 'En cours')}
+      ${btn('#/nouveau/vu/serie', '📺', 'Série vue')}
       ${btn('#/backlog/ajouter', '🕹️', 'Backlog JV')}
     </div>`,
   });
@@ -372,7 +386,8 @@ function viewBacklog(pick) {
 
 /* ---------- Envies ---------- */
 function viewWishes(cat) {
-  const list = state.items.filter(i => i.cat === cat && i.list === 'envie').sort(wishSort);
+  let list = state.items.filter(i => i.cat === cat && i.list === 'envie').sort(wishSort);
+  if (cat === 'serie') list = sortSeriesWish(list);
   const tabs = WISH_CATS.map(c => `<a class="tab ${c === cat ? 'on' : ''}" href="#/envies/${c}">${CATS[c].short}</a>`).join('');
   page({
     title: 'Wishlist', back: '#/', fab: `#/nouveau/envie/${cat}`,
@@ -381,7 +396,7 @@ function viewWishes(cat) {
         <a class="row ${hasImg(cat) ? 'cine' : ''}" href="#/fiche/${i.id}">
           ${hasImg(cat) ? `<span class="thumb ${i.posterSrc === 'rawg' ? 'wide' : ''}" data-poster="${i.id}" data-ph="${CATS[cat].icon}"></span>` : ''}
           <span class="rt">${esc(i.title)}
-            <small>${[cat === 'amiibo' ? 'N° ' + i.number : '', cat === 'jeu' ? i.console : '', hasSupport(cat) ? i.support : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
+            <small>${[cat === 'serie' ? seasonLabel(i.seasonNum, i.seasonName) : '', cat === 'amiibo' ? 'N° ' + i.number : '', cat === 'jeu' ? i.console : '', hasSupport(cat) ? i.support : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
           <span class="rm">${i.release ? fmtDate(i.release) : 'N.C.'}</span>
         </a>`).join('')}</div>` : '<p class="empty">Rien dans la Wishlist pour cette catégorie.</p>'}`,
   });
@@ -444,6 +459,8 @@ function viewCinema() {
 async function viewDetail(id) {
   const it = getItem(id);
   if (!it) { location.hash = '#/'; return; }
+  if (it.list === 'encours') { location.hash = `#/encours/fiche/${id}`; return; }
+  if (it.cat === 'serie' && it.list === 'vu') { location.hash = `#/serie/${id}`; return; }
   const row = (k, v) => `<div class="fr"><span class="fk">${k}</span><span class="fv">${v}</span></div>`;
   let h = '';
   if (it.list === 'vu') {
@@ -456,6 +473,7 @@ async function viewDetail(id) {
   } else if (it.list === 'envie') {
     if (hasImg(it.cat)) h += `<div class="poster-big" id="pb"></div>`;
     if (it.cat === 'amiibo') h += row('Numéro', esc(it.number));
+    if (it.cat === 'serie') h += row('Saison', esc(seasonLabel(it.seasonNum, it.seasonName)));
     if (it.cat === 'jeu') h += row('Console', esc(it.console));
     if (hasSupport(it.cat)) h += row('Support', esc(it.support));
     h += row('Date de sortie', it.release ? esc(fmtDate(it.release)) : 'N.C.');
@@ -480,36 +498,51 @@ async function viewDetail(id) {
       if (it.loanedTo) h += row('Prêté à', esc(it.loanedTo));
       if (it.loanDate) h += row('Date du prêt', esc(fmtDate(it.loanDate)));
     }
+    if (it.cat === 'jeu' && (it.completions || []).length) h += row('Terminé', `${it.completions.length} fois`);
+    if (it.cat === 'livre' && (it.reads || []).length) h += row('Lu', `Oui · ${it.reads.length} fois`);
+    if (it.cat === 'film' && (it.views || []).length) h += row('Dernier visionnage', esc(maxDate(it.views) ? fmtDate(maxDate(it.views)) : 'Sans date'));
+    if (it.cur) h += row('En cours', '▶️ Oui');
   }
   const blBtn = it.cat === 'jeu' && it.list === 'possede' ? `<button class="btn ghost block" id="bl">${it.backlog ? '➖ Retirer du backlog' : '🕹️ Ajouter au backlog'}</button>` : '';
   const csrc = REMOTE_SRC.includes(it.posterSrc) ? it.posterSrc : (it.tmdbPoster && it.posterSrc !== 'removed' ? 'tmdb' : '');
   const credit = csrc ? `<p class="credit">${IMG_LABEL(it.cat)} : <a href="${PROV_LINK[csrc]}" target="_blank" rel="noopener">${PROV_NAME[csrc]}</a></p>` : '';
-  const convert = it.list === 'envie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '';
+  const canCur = ['jeu', 'livre', 'film', 'cinema', 'serie'].includes(it.cat);
+  const convert = (it.list === 'envie' && it.cat !== 'serie' ? `<a class="btn primary block" href="#/edition/${it.id}/convertir">${it.cat === 'cinema' ? '✅ Je l\'ai vu' : '✅ Ajouter à ma collection'}</a>` : '')
+    + (it.list === 'envie' && canCur ? '<button class="btn ghost block" id="tocur">▶️ Passer en cours</button>' : '')
+    + (it.list === 'possede' && ['jeu', 'livre', 'film'].includes(it.cat) ? (it.cur ? `<a class="btn ghost block" href="#/encours/fiche/${it.id}">▶️ Voir dans En cours</a>` : '<button class="btn ghost block" id="tocur">▶️ Passer en cours</button>') : '');
+  const histBox = it.list === 'possede' && ['jeu', 'livre', 'film'].includes(it.cat)
+    ? (it.cat === 'jeu' ? '<div class="card hcard" id="hc"></div><div class="card hcard" id="hs"></div>' : '<div class="card hcard" id="hc"></div>') : '';
   const sub = it.list === 'possede' ? CATS[it.cat].short : it.list === 'envie' ? 'Wishlist · ' + CATS[it.cat].short : 'Film vu';
   page({
     title: '', back: backOf(it),
     right: `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
     body: `<p class="kicker">${esc(sub)}</p><h2 class="title">${esc(it.title)}</h2>
-      <div class="fiche">${h}</div>${credit}
+      <div class="fiche">${h}</div>${credit}${histBox}
       <div class="actions">${convert}${blBtn}
         <button class="btn danger-ghost block" id="del">Supprimer</button></div>`,
   });
-  if ($('#pb')) { const u = await posterUrl(it.id); $('#pb').innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'image</div>'; }
+  if ($('#tocur')) $('#tocur').onclick = () => (it.list === 'envie' ? moveWishToCur(it) : setCur(it));
+  if ($('#hc')) historyWidget($('#hc'), { label: it.cat === 'jeu' ? 'Terminé' : it.cat === 'livre' ? 'Lectures' : 'Visionnages', list: it[it.cat === 'jeu' ? 'completions' : it.cat === 'livre' ? 'reads' : 'views'] ||= [], allowUndated: it.cat !== 'film',
+    onSave: async () => { if (it.cat === 'livre') it.read = it.reads.length > 0; await saveItem(it); } });
+  if ($('#hs')) historyWidget($('#hs'), { label: 'Sessions de jeu', list: it.sessions ||= [], onSave: () => saveItem(it) });
   if ($('#bl')) $('#bl').onclick = async () => { it.backlog = !it.backlog; await saveItem(it); toast(it.backlog ? 'Ajouté au backlog' : 'Retiré du backlog'); viewDetail(it.id); };
   $('#del').onclick = async () => {
     const msg = it.list === 'envie' ? `Retirer « ${it.title} » de la Wishlist ?` : `Supprimer définitivement « ${it.title} » ?`;
     if (await confirmBox(msg)) { await deleteItem(it.id); toast('Supprimé'); location.hash = backOf(it); }
   };
+  const pb = $('#pb');
+  if (pb) { const u = await posterUrl(it.id); pb.innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'image</div>'; }
 }
 const chips = gs => `<span class="chips">${gs.map(g => `<span class="chip">${esc(g)}</span>`).join('')}</span>`;
 const fmtDuration = m => { m = +m; const h = Math.floor(m / 60), r = m % 60; return h ? `${h} h ${String(r).padStart(2, '0')}` : `${r} min`; };
 
 /* ---------- Formulaire (création / édition / conversion) ---------- */
-async function viewForm(existing, convert, listArg, catArg) {
+async function viewForm(existing, convert, listArg, catArg, toCur = false) {
   if (existing === undefined) { location.hash = '#/'; return; }
   const isNew = !existing;
   const it = existing ? structuredClone(existing) : { id: uid(), cat: catArg, list: listArg, createdAt: new Date().toISOString(), genres: [] };
-  if (isNew && (!CATS[it.cat] || !['possede', 'envie', 'vu'].includes(it.list))) { location.hash = '#/'; return; }
+  if (isNew && (!CATS[it.cat] || !['possede', 'envie', 'vu', 'encours'].includes(it.list))) { location.hash = '#/'; return; }
+  if (it.list === 'encours' && !['cinema', 'serie'].includes(it.cat)) { location.hash = '#/'; return; }
   const target = convert ? (it.cat === 'cinema' ? 'vu' : 'possede') : it.list;
   const cat = it.cat;
   const genres = new Set(it.genres || []);
@@ -522,21 +555,31 @@ async function viewForm(existing, convert, listArg, catArg) {
     const yr = E.year ? E.year.value.trim() : (E.ryear && !E.ryear.hidden ? E.ryear.value : E.rdate && !E.rdate.hidden ? E.rdate.value.slice(0, 4) : (it.release || '').slice(0, 4));
     return { cat, title: E.title.value.trim(), year: yr, console: E.console ? E.console.value : it.console, isbn: E.isbn ? E.isbn.value.replace(/[^0-9Xx]/g, '') : it.isbn };
   };
-  if (target === 'vu' && !it.seenDate) it.seenDate = today();
+  const isSeen = target === 'vu' && cat !== 'serie';   // film vu (Mon cinéma)
+  if (isSeen && !it.seenDate) it.seenDate = today();
 
-  const title = convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter à ma collection')
-    : (isNew ? (target === 'envie' ? 'Ajouter à la Wishlist' : target === 'vu' ? 'Film vu' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
+  const title = toCur ? 'Ajouter à ma collection puis En cours' : convert ? (target === 'vu' ? 'Marquer comme vu' : 'Ajouter à ma collection')
+    : (isNew ? (target === 'envie' ? 'Ajouter à la Wishlist' : target === 'encours' ? (cat === 'serie' ? 'Nouvelle saison en cours' : 'Nouveau film en cours')
+      : cat === 'serie' ? 'Nouvelle série' : target === 'vu' ? 'Film vu' : 'Nouveau ' + CATS[cat].one) : 'Modifier');
 
   const field = (label, inner, req = false) => `<label class="fld"><span class="lbl">${label}${req ? ' <b>*</b>' : ''}</span>${inner}</label>`;
   const opt = (arr, cur) => arr.map(o => `<option ${o === cur ? 'selected' : ''}>${esc(o)}</option>`).join('');
-  let h = field(cat === 'amiibo' ? 'Nom' : 'Titre', `<input class="inp" name="title" value="${esc(it.title)}" autocomplete="off" required>`, true);
+  let h = field(cat === 'amiibo' ? 'Nom' : cat === 'serie' ? 'Nom de la série' : 'Titre', `<input class="inp" name="title" value="${esc(it.title)}" autocomplete="off" required>`, true);
   if (cat === 'amiibo') h += field('Numéro', `<input class="inp" name="number" inputmode="numeric" value="${esc(it.number)}" autocomplete="off">`, true);
+  if (cat === 'serie' && (target === 'envie' || target === 'encours')) {
+    h += field('Numéro de saison', `<input class="inp" type="number" inputmode="numeric" min="0" name="seasonNum" value="${esc(it.seasonNum ?? (isNew ? 1 : ''))}">`, true);
+    h += field('Nom de la saison', `<input class="inp" name="seasonName" placeholder="Facultatif" value="${esc(it.seasonName)}" autocomplete="off">`);
+  }
+  if (target === 'encours') {
+    h += field('Année de sortie', `<input class="inp" type="number" inputmode="numeric" name="year" min="1890" max="2100" placeholder="Facultatif" value="${esc(it.year)}">`);
+    if (cat === 'serie' && isNew) h += field("Nombre d'épisodes", `<input class="inp" type="number" inputmode="numeric" min="0" name="epCount" placeholder="Modifiable ensuite">`);
+  }
 
   const posterBlock = `<div class="fld"><span class="lbl">${IMG_LABEL(cat)}</span><div class="poster-edit"><div class="poster-prev" id="pp"></div>
       <div class="pbtns"><label class="btn ghost">Choisir une image<input type="file" accept="image/*" id="pf" hidden></label>
       ${canSearch(cat) ? `<button type="button" class="btn ghost" id="ptm">🔎 Chercher sur ${PROV_NAME[PROVIDER[cat]]}</button>` : ''}
       <button type="button" class="btn danger-ghost" id="prm">Retirer</button></div></div></div>`;
-  if (target === 'vu') {
+  if (isSeen) {
     h += field('Date de visionnage', `<input class="inp" type="date" name="seenDate" value="${esc(it.seenDate)}">`, true);
     h += `<div class="fld"><span class="lbl">Lieu</span><div class="seg two" id="pl">${Object.entries(PLACES).map(([k, l]) => `<button type="button" data-p="${k}" class="${placeOf(it) === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
     h += field('Année de sortie', `<input class="inp" type="number" inputmode="numeric" name="year" min="1890" max="2100" placeholder="Facultatif, aide à trouver l'affiche" value="${esc(it.year)}">`);
@@ -561,7 +604,7 @@ async function viewForm(existing, convert, listArg, catArg) {
       <input class="inp" type="date" name="rdate" value="${mode === 'date' ? r : ''}" ${mode === 'date' ? '' : 'hidden'}></div>`;
   }
   if (target === 'envie' && cat === 'livre') h += field('ISBN', `<input class="inp" name="isbn" inputmode="numeric" placeholder="Facultatif, aide à trouver la couverture" value="${esc(it.isbn)}" autocomplete="off">`);
-  if (target !== 'vu' && hasImg(cat)) h += posterBlock;
+  if ((target !== 'vu' || cat === 'serie') && hasImg(cat)) h += posterBlock;
   if (target === 'possede') {
     if (cat === 'film') h += field('Durée (minutes)', `<input class="inp" type="number" inputmode="numeric" name="duration" min="1" value="${esc(it.duration)}">`);
     if (cat === 'livre') h += field('ISBN', `<input class="inp" name="isbn" inputmode="numeric" placeholder="Facultatif, aide à trouver la couverture" value="${esc(it.isbn)}" autocomplete="off">`);
@@ -581,7 +624,8 @@ async function viewForm(existing, convert, listArg, catArg) {
   }
 
   page({
-    title, back: isNew ? (target === 'possede' ? `#/liste/${cat}` : target === 'envie' ? `#/envies/${cat}` : '#/cinema') : `#/fiche/${it.id}`,
+    title, back: isNew ? (target === 'possede' ? `#/liste/${cat}` : target === 'envie' ? `#/envies/${cat}` : target === 'encours' ? `#/encours/ajouter/${curTab(it)}` : cat === 'serie' ? '#/series' : '#/cinema')
+      : it.list === 'encours' ? `#/encours/fiche/${it.id}` : `#/fiche/${it.id}`,
     body: `<form id="frm" class="form" novalidate>${h}<p class="muted small"><b>*</b> obligatoire</p>
       <button class="btn primary block" type="submit">Enregistrer</button></form>`,
   });
@@ -685,7 +729,8 @@ async function viewForm(existing, convert, listArg, catArg) {
     if (cat === 'jeu' && (!val('console') || val('console') === '__new')) errs.push('la console');
     if (hasSupport(cat) && (!val('support') || val('support') === '__new')) errs.push('le support');
     if (target === 'possede' && hasGenre(cat) && genres.size === 0) errs.push('au moins un genre');
-    if (target === 'vu' && !val('seenDate')) errs.push('la date de visionnage');
+    if (isSeen && !val('seenDate')) errs.push('la date de visionnage');
+    if (cat === 'serie' && (target === 'envie' || target === 'encours') && !(parseInt(val('seasonNum'), 10) >= 0)) errs.push('le numéro de saison');
     let release = '';
     if (target === 'envie' && frm._rmode) {
       const m = frm._rmode();
@@ -702,7 +747,10 @@ async function viewForm(existing, convert, listArg, catArg) {
     if ($('#gp')) it.genres = [...genres].sort(coll.compare);
     if (target === 'envie') it.release = release;
     if (cat === 'livre') it.isbn = val('isbn').replace(/[^0-9Xx]/g, '');
-    if (target === 'vu') {
+    if (cat === 'serie' && (target === 'envie' || target === 'encours')) { it.seasonNum = parseInt(val('seasonNum'), 10); it.seasonName = val('seasonName'); }
+    if (target === 'encours') { it.year = val('year'); if (cat === 'serie' && isNew) it.episodes = newEpisodes(parseInt(val('epCount'), 10) || 0); }
+    if (cat === 'serie' && target === 'vu') it.seasons ||= [];
+    if (isSeen) {
       it.seenDate = val('seenDate'); it.rating = rating; it.place = place; it.year = val('year');
     }
     // Image automatique pour un nouvel élément sans image choisie
@@ -712,8 +760,8 @@ async function viewForm(existing, convert, listArg, catArg) {
         const r = await getImage({ ...formQuery(), year: it.year || (release || it.release || '').slice(0, 4) });
         if (r) {
           posterMeta = { src: r.src, url: r.url }; poster = r.blob || REMOTE;
-          if (target === 'vu' && !it.year && r.year) it.year = r.year;
-          if (target === 'vu' && !genres.size && (r.genres || []).length) it.genres = r.genres;
+          if (isSeen && !it.year && r.year) it.year = r.year;
+          if (isSeen && !genres.size && (r.genres || []).length) it.genres = r.genres;
         }
       } catch (err) { /* hors ligne : on enregistre sans image */ }
     }
@@ -734,9 +782,10 @@ async function viewForm(existing, convert, listArg, catArg) {
       it.tmdbPoster = '';
       dropPosterUrl(it.id);
     }
+    if (toCur) { it.cur = true; it.curStart = ''; it.curPage = ''; it.curProgress = ''; if (cat === 'jeu') it.backlog = false; }
     await saveItem(it);
-    toast(convert ? (target === 'vu' ? 'Ajouté à Mon cinéma' : 'Ajouté à ma collection') : 'Enregistré');
-    location.hash = isNew ? backOf(it) : `#/fiche/${it.id}`;
+    toast(toCur ? 'Ajouté à ma collection et passé en cours' : convert ? (target === 'vu' ? 'Ajouté à Mon cinéma' : 'Ajouté à ma collection') : 'Enregistré');
+    location.hash = toCur || target === 'encours' ? `#/encours/fiche/${it.id}` : cat === 'serie' && target === 'vu' ? `#/serie/${it.id}` : isNew ? backOf(it) : `#/fiche/${it.id}`;
   });
 }
 
@@ -768,6 +817,445 @@ function genrePicker(root, cat, selected) {
   });
   $('#gq', root).addEventListener('input', draw);
   draw();
+}
+
+/* ================= Séries & En cours : outils communs ================= */
+const seasonLabel = (num, name) => `S:${num}${name ? ' ' + name : ''}`;
+const epLabel = (sNum, sName, eNum, eTitle) => `${seasonLabel(sNum, sName)} E:${eNum}${eTitle ? ' ' + eTitle : ''}`;
+const curTab = it => (it.cat === 'cinema' ? 'film' : it.cat);
+const maxDate = arr => (arr || []).filter(Boolean).sort().pop() || '';
+const newEpisodes = (n, from = 1) => Array.from({ length: Math.max(0, n) }, (_, k) => ({ num: from + k, title: '', airDate: '', seen: false, seenDate: '', startDate: '', progress: '' }));
+const fiche = rows => `<div class="fiche">${rows}</div>`;
+const frow = (k, v) => `<div class="fr"><span class="fk">${k}</span><span class="fv">${v}</span></div>`;
+
+// Fenêtre de saisie à plusieurs champs. fields : [{ name, label, type, value, placeholder }]
+// Renvoie un objet de valeurs, { __action: 'delete' } ou null (annulé)
+function formBox(title, fields, { ok = 'Enregistrer', del = null } = {}) {
+  return new Promise(res => {
+    const el = document.createElement('div');
+    el.className = 'modal-back';
+    el.innerHTML = `<form class="modal" novalidate><h3>${esc(title)}</h3>
+      ${fields.map(f => f.type === 'checkbox'
+        ? `<label class="fld check"><input type="checkbox" name="${f.name}" ${f.value ? 'checked' : ''}> <span>${esc(f.label)}</span></label>`
+        : `<label class="fld"><span class="lbl">${esc(f.label)}</span><input class="inp" name="${f.name}" type="${f.type || 'text'}" ${f.type === 'number' ? 'inputmode="numeric" min="0"' : ''} placeholder="${esc(f.placeholder || '')}" value="${esc(f.value ?? '')}" autocomplete="off"></label>`).join('')}
+      <div class="modal-btns"><button type="button" class="btn ghost" data-r="0">Annuler</button><button type="submit" class="btn primary">${esc(ok)}</button></div>
+      ${del ? `<button type="button" class="btn danger-ghost block" data-r="del">${esc(del)}</button>` : ''}</form>`;
+    document.body.appendChild(el);
+    const frm = $('form', el);
+    const close = v => { el.remove(); res(v); };
+    frm.addEventListener('submit', e => {
+      e.preventDefault();
+      const out = {};
+      fields.forEach(f => { const i = frm.elements[f.name]; out[f.name] = f.type === 'checkbox' ? i.checked : i.value.trim(); });
+      close(out);
+    });
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-r]');
+      if (b) close(b.dataset.r === 'del' ? { __action: 'delete' } : null);
+    });
+  });
+}
+
+// Historique de dates éditable (ordre décroissant, entrées « sans date » à la fin)
+function historyWidget(root, { label, list, allowUndated = false, onSave }) {
+  if (!root || root.dataset.hw) return;
+  root.dataset.hw = '1';
+  const draw = () => {
+    const sorted = list.map((d, i) => ({ d, i })).sort((a, b) => (b.d || '').localeCompare(a.d || ''));
+    root.innerHTML = `<h2 class="sec">${esc(label)}${list.length ? ` · ${list.length}` : ''}</h2>
+      <div class="hist">${sorted.length ? sorted.map(({ d, i }) => `<div class="hrow"><span>${d ? fmtDate(d) : '<span class="muted">Sans date</span>'}</span><button type="button" class="x" data-hdel="${i}" aria-label="Supprimer">✕</button></div>`).join('') : '<p class="muted small">Aucune date.</p>'}</div>
+      <div class="addrow"><input class="inp" type="date" value="${today()}"><button type="button" class="btn primary" data-hadd>Ajouter</button>${allowUndated ? '<button type="button" class="btn ghost" data-hund>Sans date</button>' : ''}</div>`;
+  };
+  root.addEventListener('click', async e => {
+    const d = e.target.closest('[data-hdel]');
+    if (d) { if (await confirmBox('Supprimer cette date de l\'historique ?')) { list.splice(+d.dataset.hdel, 1); await onSave(); draw(); } return; }
+    if (e.target.closest('[data-hadd]')) { const v = $('input', root).value; if (!v) return; list.push(v); await onSave(); draw(); return; }
+    if (e.target.closest('[data-hund]')) { list.push(''); await onSave(); draw(); }
+  });
+  draw();
+}
+
+async function copyImage(from, to) {
+  if (await DB.get('posters', to.id)) return;
+  if (to.posterSrc && to.posterSrc !== 'removed' && remoteUrl(to)) return;
+  const b = await DB.get('posters', from.id);
+  if (b) await DB.put('posters', b, to.id);
+  if (b || remoteUrl(from)) { to.posterSrc = from.posterSrc || 'manual'; to.imgUrl = remoteUrl(from); to.tmdbPoster = ''; }
+  dropPosterUrl(to.id);
+}
+
+/* ================= Wishlist : tri des saisons de séries ================= */
+function sortSeriesWish(list) {
+  const groups = new Map();
+  for (const i of list) { const k = norm(i.title); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(i); }
+  const arr = [...groups.values()].map(g => ({ g: g.sort((a, b) => (+a.seasonNum || 0) - (+b.seasonNum || 0)), key: g.map(wishKey).sort().pop(), added: g.map(i => i.createdAt || '').sort().pop() }));
+  arr.sort((a, b) => a.key.localeCompare(b.key) || a.added.localeCompare(b.added) || coll.compare(a.g[0].title, b.g[0].title));
+  return arr.flatMap(x => x.g);
+}
+
+/* ================= Séries (vues) ================= */
+const seriesList = () => state.items.filter(i => i.cat === 'serie' && i.list === 'vu');
+const sortedSeasons = s => [...(s.seasons || [])].sort((a, b) => a.num - b.num);
+
+function viewSeries() {
+  const f = state.filters.series ||= { q: '' };
+  page({
+    title: 'Mes séries', back: '#/', fab: '#/nouveau/vu/serie',
+    body: `<div class="filters"><input class="inp" type="search" placeholder="Rechercher une série…" id="sq" value="${esc(f.q)}">
+      ${PROVIDER.serie ? '<button class="btn ghost block" id="mp">🔎 Récupérer les affiches manquantes</button>' : ''}</div><div id="res"></div>
+      <p class="credit">Images : <a href="${PROV_LINK.tmdb}" target="_blank" rel="noopener">TMDB</a></p>`,
+  });
+  const draw = () => {
+    const q = norm(f.q);
+    const list = seriesList().filter(i => !q || norm(i.title).includes(q)).sort((a, b) => coll.compare(a.title, b.title));
+    $('#res').innerHTML = `<p class="count">${list.length} série${list.length > 1 ? 's' : ''}</p>` + (list.length ? `<div class="rows">${list.map(i => {
+      const ss = i.seasons || [];
+      const last = maxDate(ss.flatMap(s => s.views || []));
+      return `<a class="row cine" href="#/serie/${i.id}"><span class="thumb" data-poster="${i.id}" data-ph="📺"></span>
+        <span class="rt">${esc(i.title)}<small>${ss.length} saison${ss.length > 1 ? 's' : ''}${last ? ' · vue le ' + fmtDate(last) : ''}</small></span>
+        ${state.items.some(x => x.list === 'encours' && x.serieId === i.id) ? '<span class="badge alt">En cours</span>' : ''}</a>`;
+    }).join('')}</div>` : '<p class="empty">Aucune série. Touche + pour en ajouter une.</p>');
+    loadThumbs();
+  };
+  $('#sq').addEventListener('input', e => { f.q = e.target.value; draw(); });
+  if ($('#mp')) $('#mp').onclick = async () => {
+    const todo = await missingPosters(seriesList());
+    if (!todo.length) { alertBox(canSearch('serie') ? 'Toutes les séries ont déjà une affiche.' : 'Ajoute ta clé TMDB dans les Réglages pour chercher les affiches.'); return; }
+    const r = await fetchPosters(todo);
+    await modal({ title: 'Affiches', text: `${r.posters} trouvée${r.posters > 1 ? 's' : ''} sur ${todo.length}.`, cancel: null });
+    draw();
+  };
+  draw();
+}
+
+async function seasonForm(serie, s) {
+  const nums = (serie.seasons || []).map(x => x.num);
+  const v = await formBox(s ? 'Modifier la saison' : 'Nouvelle saison', [
+    { name: 'num', label: 'Numéro de saison *', type: 'number', value: s ? s.num : (nums.length ? Math.max(...nums) + 1 : 1) },
+    { name: 'name', label: 'Nom de la saison (facultatif)', value: s ? s.name : '' },
+    { name: 'year', label: 'Année de sortie (facultatif)', type: 'number', value: s ? s.year : '', placeholder: 'AAAA' },
+    ...(s ? [] : [{ name: 'count', label: "Nombre d'épisodes", type: 'number', value: '', placeholder: 'Modifiable ensuite' }]),
+  ], { del: s ? 'Supprimer la saison' : null });
+  if (!v) return null;
+  if (v.__action === 'delete') return v;
+  const num = parseInt(v.num, 10);
+  if (!(num >= 0)) { alertBox('Le numéro de saison est obligatoire.'); return null; }
+  if ((serie.seasons || []).some(x => x.num === num && x !== s)) { alertBox(`La saison ${num} existe déjà.`); return null; }
+  return { num, name: v.name, year: v.year, count: parseInt(v.count, 10) || 0 };
+}
+
+async function viewSerie(id) {
+  const it = getItem(id);
+  if (!it || it.cat !== 'serie' || it.list !== 'vu') { location.hash = '#/series'; return; }
+  it.seasons ||= [];
+  const ss = sortedSeasons(it);
+  page({
+    title: '', back: '#/series', right: `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
+    body: `<div class="poster-big" id="pb"></div><p class="kicker">Série</p><h2 class="title">${esc(it.title)}</h2>
+      <h2 class="sec">Saisons</h2>
+      ${ss.length ? `<div class="rows">${ss.map(s => {
+        const last = maxDate(s.views);
+        const cur = state.items.some(x => x.list === 'encours' && x.serieId === it.id && x.seasonNum === s.num);
+        return `<a class="row" href="#/serie/${it.id}/saison/${s.id}"><span class="rt">${esc(seasonLabel(s.num, s.name))}
+          <small>${[s.year, `${s.episodes.length} épisode${s.episodes.length > 1 ? 's' : ''}`, last ? `vue le ${fmtDate(last)}${s.views.length > 1 ? ` (${s.views.length} fois)` : ''}` : ''].filter(Boolean).map(esc).join(' · ')}</small></span>
+          ${cur ? '<span class="badge alt">En cours</span>' : ''}</a>`;
+      }).join('')}</div>` : '<p class="muted small">Aucune saison.</p>'}
+      <div class="actions">
+        <button class="btn primary block" id="adds">＋ Ajouter une saison</button>
+        ${ss.length ? '<button class="btn ghost block" id="rewall">▶️ Revoir toute la série (toutes les saisons en cours)</button>' : ''}
+        <button class="btn danger-ghost block" id="del">Supprimer la série</button>
+      </div>`,
+  });
+  const pb = $('#pb');
+  $('#adds').onclick = async () => {
+    const v = await seasonForm(it, null); if (!v) return;
+    it.seasons.push({ id: uid(), num: v.num, name: v.name, year: v.year, episodes: newEpisodes(v.count).map(({ num }) => ({ num, title: '', airDate: '' })), views: [] });
+    await saveItem(it); toast('Saison ajoutée'); viewSerie(id);
+  };
+  if ($('#rewall')) $('#rewall').onclick = async () => {
+    if (!(await modal({ title: 'Revoir la série', text: `Passer les ${ss.length} saisons de « ${it.title} » en cours ?`, ok: 'Passer en cours' }))) return;
+    for (const s of ss) await startRewatch(it, s);
+    toast('Saisons passées en cours'); location.hash = '#/encours/serie';
+  };
+  $('#del').onclick = async () => {
+    if (await confirmBox(`Supprimer « ${it.title} » et tout son historique ?`)) { await deleteItem(it.id); toast('Supprimée'); location.hash = '#/series'; }
+  };
+  const u = await posterUrl(it.id); pb.innerHTML = u ? `<img src="${u}" alt="">` : '<div class="noposter">Pas d\'image</div>';
+}
+
+async function viewSeason(id, sid) {
+  const it = getItem(id);
+  const s = it && (it.seasons || []).find(x => x.id === sid);
+  if (!s) { location.hash = it ? `#/serie/${id}` : '#/series'; return; }
+  s.views ||= []; s.episodes ||= [];
+  const eps = [...s.episodes].sort((a, b) => a.num - b.num);
+  page({
+    title: '', back: `#/serie/${id}`, right: '<a href="#" class="hlink" id="eds">Modifier</a>',
+    body: `<p class="kicker">${esc(it.title)}</p><h2 class="title">${esc(seasonLabel(s.num, s.name))}</h2>
+      ${s.year ? fiche(frow('Année de sortie', esc(s.year))) : ''}
+      <h2 class="sec">Épisodes · ${eps.length}</h2>
+      ${eps.length ? `<div class="rows">${eps.map(e => `<a class="row" href="#" data-ep="${e.num}"><span class="rt">${esc(epLabel(s.num, s.name, e.num, e.title))}${e.airDate ? `<small>Diffusé le ${fmtDate(e.airDate)}</small>` : ''}</span></a>`).join('')}</div>` : '<p class="muted small">Aucun épisode.</p>'}
+      <button class="btn ghost block" id="adde">＋ Ajouter un épisode</button>
+      <div class="card hcard" id="hv"></div>
+      <div class="actions"><button class="btn primary block" id="rew">▶️ Revoir cette saison (passer en cours)</button></div>`,
+  });
+  historyWidget($('#hv'), { label: 'Visionnages', list: s.views, onSave: () => saveItem(it) });
+  $('#eds').onclick = async e => {
+    e.preventDefault();
+    const v = await seasonForm(it, s); if (!v) return;
+    if (v.__action === 'delete') {
+      if (await confirmBox(`Supprimer la saison ${seasonLabel(s.num, s.name)} et son historique ?`)) { it.seasons = it.seasons.filter(x => x !== s); await saveItem(it); toast('Saison supprimée'); location.hash = `#/serie/${id}`; }
+      return;
+    }
+    Object.assign(s, { num: v.num, name: v.name, year: v.year }); await saveItem(it); viewSeason(id, sid);
+  };
+  $('#adde').onclick = async () => { s.episodes.push({ num: (eps.length ? eps[eps.length - 1].num : 0) + 1, title: '', airDate: '' }); await saveItem(it); viewSeason(id, sid); };
+  $$('[data-ep]').forEach(a => a.addEventListener('click', async e => {
+    e.preventDefault();
+    const ep = s.episodes.find(x => x.num === +a.dataset.ep);
+    const v = await formBox(`Épisode ${ep.num}`, [
+      { name: 'title', label: "Titre de l'épisode", value: ep.title },
+      { name: 'airDate', label: 'Date de diffusion', type: 'date', value: ep.airDate },
+    ], { del: "Supprimer l'épisode" });
+    if (!v) return;
+    if (v.__action === 'delete') {
+      if (!(await confirmBox(`Supprimer l'épisode ${ep.num} ? Les épisodes suivants seront renumérotés.`))) return;
+      s.episodes = s.episodes.filter(x => x !== ep).sort((x, y) => x.num - y.num).map((x, k) => ({ ...x, num: k + 1 }));
+    } else Object.assign(ep, v);
+    await saveItem(it); viewSeason(id, sid);
+  }));
+  $('#rew').onclick = async () => { const cid = await startRewatch(it, s); location.hash = `#/encours/fiche/${cid}`; };
+}
+
+// Crée (ou retrouve) la saison en cours correspondant à une saison déjà vue
+async function startRewatch(serie, s) {
+  const ex = state.items.find(x => x.list === 'encours' && x.serieId === serie.id && x.seasonNum === s.num);
+  if (ex) return ex.id;
+  const it = { id: uid(), cat: 'serie', list: 'encours', createdAt: new Date().toISOString(), title: serie.title, serieId: serie.id,
+    seasonNum: s.num, seasonName: s.name || '', year: s.year || '', curStart: '',
+    episodes: [...(s.episodes || [])].sort((a, b) => a.num - b.num).map(e => ({ num: e.num, title: e.title || '', airDate: e.airDate || '', seen: false, seenDate: '', startDate: '', progress: '' })) };
+  await copyImage(serie, it);
+  await saveItem(it);
+  return it.id;
+}
+
+/* ================= En cours ================= */
+const CUR_CATS = ['jeu', 'livre', 'serie', 'film'];
+const CUR_LABEL = { jeu: 'Jeux vidéo', livre: 'Livres', serie: 'Séries', film: 'Films' };
+function curItems(tab) {
+  const l = state.items.filter(i => tab === 'film' ? ((i.cat === 'film' && i.list === 'possede' && i.cur) || (i.cat === 'cinema' && i.list === 'encours'))
+    : tab === 'serie' ? (i.cat === 'serie' && i.list === 'encours')
+    : (i.cat === tab && i.list === 'possede' && i.cur));
+  return l.sort((a, b) => coll.compare(a.title, b.title) || (+a.seasonNum || 0) - (+b.seasonNum || 0));
+}
+function curSubtitle(i) {
+  if (i.cat === 'jeu') { const l = maxDate(i.sessions); return [i.console, l ? `Dernière partie le ${fmtDate(l)}` : i.curStart ? `Commencé le ${fmtDate(i.curStart)}` : ''].filter(Boolean).join(' · '); }
+  if (i.cat === 'livre') return i.curPage ? `Page ${i.curPage}${i.pages ? ' / ' + i.pages : ''}` : i.curStart ? `Commencé le ${fmtDate(i.curStart)}` : '';
+  if (i.cat === 'serie') { const n = (i.episodes || []).length, v = (i.episodes || []).filter(e => e.seen).length; return `${seasonLabel(i.seasonNum, i.seasonName)} · ${v}/${n} épisode${n > 1 ? 's' : ''} vu${v > 1 ? 's' : ''}`; }
+  return i.curProgress ? `À ${i.curProgress} min${i.duration ? ' / ' + i.duration : ''}` : i.curStart ? `Commencé le ${fmtDate(i.curStart)}` : (i.cat === 'cinema' ? 'Hors collection' : '');
+}
+function viewCur(tab) {
+  const list = curItems(tab);
+  const tabs = CUR_CATS.map(c => `<a class="tab ${c === tab ? 'on' : ''}" href="#/encours/${c}">${CUR_LABEL[c]} <span class="tabn">${curItems(c).length}</span></a>`).join('');
+  page({
+    title: 'En cours', back: '#/', fab: `#/encours/ajouter/${tab}`,
+    body: `<nav class="tabs">${tabs}</nav>
+      ${list.length ? `<div class="rows">${list.map(i => `<a class="row cine" href="#/encours/fiche/${i.id}">
+        <span class="thumb ${i.posterSrc === 'rawg' ? 'wide' : ''}" data-poster="${i.id}" data-ph="${(CATS[i.cat] || CATS.serie).icon}"></span>
+        <span class="rt">${esc(i.title)}<small>${esc(curSubtitle(i))}</small></span></a>`).join('')}</div>` : `<p class="empty">Rien en cours dans cette catégorie.<br>Touche + pour en ajouter.</p>`}`,
+  });
+  loadThumbs();
+}
+
+async function setCur(it) {
+  it.cur = true; it.curStart = it.curStart || ''; it.curPage = ''; it.curProgress = '';
+  if (it.cat === 'jeu') it.backlog = false;
+  await saveItem(it);
+  location.hash = `#/encours/fiche/${it.id}`;
+}
+async function moveWishToCur(it) {
+  if (['jeu', 'livre', 'film'].includes(it.cat)) { location.hash = `#/edition/${it.id}/encours`; return; }
+  it.list = 'encours'; it.curStart = ''; it.curProgress = '';
+  if (it.cat === 'serie') { it.episodes ||= []; it.year = it.year || (it.release || '').slice(0, 4); }
+  await saveItem(it);
+  toast('Passé en cours');
+  location.hash = `#/encours/fiche/${it.id}`;
+}
+
+function viewCurAdd(tab) {
+  if (!CUR_CATS.includes(tab)) { location.hash = '#/encours/jeu'; return; }
+  const f = state.filters['cur-' + tab] ||= { q: '', console: '', done: '' };
+  const row = (i, sub, act) => `<a class="row cine" href="#" data-act="${act}" data-id="${i.id}">
+    <span class="thumb ${i.posterSrc === 'rawg' ? 'wide' : ''}" data-poster="${i.id}" data-ph="${(CATS[i.cat] || CATS.serie).icon}"></span>
+    <span class="rt">${prefix(i) ? `<span class="pre">${esc(prefix(i))}</span> ` : ''}${esc(i.title)}${sub ? `<small>${esc(sub)}</small>` : ''}</span><span class="addic">＋</span></a>`;
+  const section = (label, items) => `<h2 class="sec">${label} · ${items.length}</h2>` + (items.length ? `<div class="rows">${items.join('')}</div>` : '<p class="muted small">Aucun élément.</p>');
+  page({
+    title: `En cours · ${CUR_LABEL[tab]}`, back: `#/encours/${tab}`,
+    body: `<div class="filters">
+        ${tab === 'film' ? '<a class="btn primary block" href="#/nouveau/encours/cinema">＋ Nouveau film (hors collection)</a>' : ''}
+        ${tab === 'serie' ? '<a class="btn primary block" href="#/nouveau/encours/serie">＋ Nouvelle saison</a>' : ''}
+        <input class="inp" type="search" placeholder="Rechercher…" id="cq" value="${esc(f.q)}">
+        ${tab === 'jeu' ? `<div class="frow"><select class="inp" id="cc"><option value="">Toutes consoles</option>${state.refs.consoles.map(c => `<option ${f.console === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>
+          <select class="inp" id="cd"><option value="">Terminés ou non</option><option value="no" ${f.done === 'no' ? 'selected' : ''}>Non terminés</option><option value="yes" ${f.done === 'yes' ? 'selected' : ''}>Terminés</option></select></div>` : ''}
+      </div><div id="res"></div>`,
+  });
+  const draw = () => {
+    const q = norm(f.q), m = i => !q || norm(i.title).includes(q);
+    let h = '';
+    if (tab === 'jeu' || tab === 'livre') {
+      const own = state.items.filter(i => i.cat === tab && i.list === 'possede' && !i.cur && m(i) &&
+        (tab !== 'jeu' || ((!f.console || i.console === f.console) && (!f.done || (f.done === 'yes') === !!(i.completions || []).length))))
+        .sort((a, b) => coll.compare(a.title, b.title));
+      h += section(tab === 'jeu' ? 'Mes jeux vidéo' : 'Mes livres', own.map(i => row(i, tab === 'jeu' ? ((i.completions || []).length ? `Terminé ${i.completions.length} fois` : '') : ((i.reads || []).length ? `Lu ${i.reads.length} fois` : ''), 'cur')));
+      const wl = state.items.filter(i => i.cat === tab && i.list === 'envie' && m(i)).sort(wishSort);
+      if (wl.length) h += section('Wishlist (sera ajouté à ta collection)', wl.map(i => row(i, '', 'wish')));
+    } else if (tab === 'film') {
+      const own = state.items.filter(i => i.cat === 'film' && i.list === 'possede' && !i.cur && m(i)).sort((a, b) => coll.compare(a.title, b.title));
+      h += section('Mes films', own.map(i => row(i, (i.views || []).length ? `Vu ${i.views.length} fois` : '', 'cur')));
+      const wl = state.items.filter(i => (i.cat === 'film' || i.cat === 'cinema') && i.list === 'envie' && m(i)).sort(wishSort);
+      h += section('Wishlist', wl.map(i => row(i, i.cat === 'film' ? 'Films · sera ajouté à ta collection' : 'Cinéma · ira dans Mon cinéma (Maison)', 'wish')));
+    } else {
+      const wl = sortSeriesWish(state.items.filter(i => i.cat === 'serie' && i.list === 'envie' && m(i)));
+      h += section('Wishlist', wl.map(i => row(i, seasonLabel(i.seasonNum, i.seasonName), 'wish')));
+      const ss = seriesList().filter(m).sort((a, b) => coll.compare(a.title, b.title));
+      h += section('Mes séries (revoir)', ss.map(i => row(i, `${(i.seasons || []).length} saison${(i.seasons || []).length > 1 ? 's' : ''}`, 'serie')));
+    }
+    $('#res').innerHTML = h;
+    loadThumbs();
+  };
+  $('#res').addEventListener('click', async e => {
+    const a = e.target.closest('[data-act]'); if (!a) return;
+    e.preventDefault();
+    const it = getItem(a.dataset.id);
+    if (a.dataset.act === 'cur') return setCur(it);
+    if (a.dataset.act === 'wish') return moveWishToCur(it);
+    const ss = sortedSeasons(it);
+    if (!ss.length) { alertBox("Cette série n'a encore aucune saison."); return; }
+    const k = await chooseBox(`Quelle saison de « ${it.title} » veux-tu revoir ?`,
+      [...ss.map(s => [s.id, seasonLabel(s.num, s.name), 'ghost']), ...(ss.length > 1 ? [['__all', 'Toutes les saisons', 'primary']] : []), ['', 'Annuler', 'ghost']]);
+    if (!k) return;
+    if (k === '__all') { for (const s of ss) await startRewatch(it, s); toast('Saisons passées en cours'); location.hash = '#/encours/serie'; return; }
+    const cid = await startRewatch(it, ss.find(s => s.id === k));
+    location.hash = `#/encours/fiche/${cid}`;
+  });
+  $('#cq').addEventListener('input', e => { f.q = e.target.value; draw(); });
+  if ($('#cc')) $('#cc').addEventListener('change', e => { f.console = e.target.value; draw(); });
+  if ($('#cd')) $('#cd').addEventListener('change', e => { f.done = e.target.value; draw(); });
+  draw();
+}
+
+async function viewCurItem(id) {
+  const it = getItem(id);
+  const isCur = it && ((it.list === 'possede' && it.cur) || it.list === 'encours');
+  if (!isCur) { location.hash = it ? `#/fiche/${id}` : '#/encours/jeu'; return; }
+  const tab = curTab(it);
+  const owned = it.list === 'possede';
+  let h = '';
+  const dateField = (name, label, value) => `<label class="fld"><span class="lbl">${label}</span><input class="inp" type="date" data-save="${name}" value="${esc(value)}"></label>`;
+  const numField = (name, label, value, suffix) => `<label class="fld"><span class="lbl">${label}</span><div class="addrow"><input class="inp" type="number" inputmode="numeric" min="0" data-save="${name}" value="${esc(value)}">${suffix ? `<span class="muted nowrap">${suffix}</span>` : ''}</div></label>`;
+  if (it.cat === 'jeu') {
+    h += dateField('curStart', 'Commencé le', it.curStart);
+    const last = maxDate(it.sessions);
+    h += `<div class="fld"><span class="lbl">Dernière partie</span><div class="addrow"><span class="fv">${last ? fmtDate(last) : '<span class="muted">Aucune</span>'}</span><button type="button" class="btn ghost" id="sess">＋ Partie aujourd'hui</button></div></div>`;
+    h += '<div class="card hcard" id="hs"></div>';
+  } else if (it.cat === 'livre') {
+    h += dateField('curStart', 'Commencé le', it.curStart);
+    h += numField('curPage', "Page où j'en suis", it.curPage, it.pages ? `/ ${it.pages}` : '');
+  } else if (it.cat === 'film' || it.cat === 'cinema') {
+    h += dateField('curStart', 'Début du visionnage', it.curStart);
+    h += numField('curProgress', "Où j'en suis (minutes)", it.curProgress, it.duration ? `/ ${it.duration} min` : 'min');
+  } else {
+    const eps = [...(it.episodes || [])].sort((a, b) => a.num - b.num);
+    const firstStart = eps.find(e => e.startDate)?.startDate;
+    h += dateField('curStart', `Début du visionnage de la saison${!it.curStart && firstStart ? ` (1er épisode : ${fmtDate(firstStart)})` : ''}`, it.curStart);
+    if (it.year) h += fiche(frow('Année de sortie', esc(it.year)));
+    h += `<h2 class="sec">Épisodes · ${eps.filter(e => e.seen).length}/${eps.length} vus</h2>`;
+    h += eps.length ? `<div class="rows">${eps.map(e => `<div class="row eprow">
+        <input type="checkbox" class="epchk" data-seen="${e.num}" ${e.seen ? 'checked' : ''} aria-label="Vu">
+        <a href="#" class="rt" data-ep="${e.num}">${esc(epLabel(it.seasonNum, it.seasonName, e.num, e.title))}
+          <small>${[e.airDate ? 'Diffusé le ' + fmtDate(e.airDate) : '', e.seen && e.seenDate ? 'Vu le ' + fmtDate(e.seenDate) : '', !e.seen && e.progress ? `À ${e.progress} min` : '', !e.seen && e.startDate ? 'Commencé le ' + fmtDate(e.startDate) : ''].filter(Boolean).join(' · ')}</small></a></div>`).join('')}</div>` : '<p class="muted small">Aucun épisode : ajoute-les au fur et à mesure.</p>';
+    h += '<button class="btn ghost block" id="adde">＋ Ajouter un épisode</button>';
+  }
+  const sub = it.cat === 'serie' ? seasonLabel(it.seasonNum, it.seasonName) : it.cat === 'cinema' ? 'Film hors collection' : CATS[it.cat].short;
+  page({
+    title: '', back: `#/encours/${tab}`,
+    right: owned ? `<a href="#/fiche/${it.id}" class="hlink">Fiche</a>` : `<a href="#/edition/${it.id}" class="hlink">Modifier</a>`,
+    body: `<div class="poster-big small" id="pb"></div><p class="kicker">En cours · ${esc(sub)}</p><h2 class="title">${esc(it.title)}</h2>
+      <div class="form">${h}</div>
+      <div class="actions"><button class="btn primary block" id="done">🏁 J'ai terminé</button>
+        <button class="btn danger-ghost block" id="drop">Retirer d'En cours</button></div>`,
+  });
+  const pb = $('#pb');
+  $$('[data-save]').forEach(inp => inp.addEventListener('change', async () => { it[inp.dataset.save] = inp.value.trim(); await saveItem(it); toast('Enregistré'); }));
+  if ($('#hs')) historyWidget($('#hs'), { label: 'Sessions de jeu', list: it.sessions ||= [], onSave: () => saveItem(it) });
+  if ($('#sess')) $('#sess').onclick = async () => { (it.sessions ||= []).push(today()); await saveItem(it); viewCurItem(id); };
+  if ($('#adde')) $('#adde').onclick = async () => { const eps = it.episodes ||= []; eps.push(...newEpisodes(1, (eps.length ? Math.max(...eps.map(e => e.num)) : 0) + 1)); await saveItem(it); viewCurItem(id); };
+  $$('[data-seen]').forEach(c => c.addEventListener('change', async () => {
+    const e = it.episodes.find(x => x.num === +c.dataset.seen);
+    e.seen = c.checked; e.seenDate = c.checked ? (e.seenDate || today()) : ''; if (c.checked) e.progress = '';
+    await saveItem(it); viewCurItem(id);
+  }));
+  $$('[data-ep]').forEach(a => a.addEventListener('click', async ev => {
+    ev.preventDefault();
+    const e = it.episodes.find(x => x.num === +a.dataset.ep);
+    const v = await formBox(`Épisode ${e.num}`, [
+      { name: 'title', label: "Titre de l'épisode", value: e.title },
+      { name: 'airDate', label: 'Date de sortie', type: 'date', value: e.airDate },
+      { name: 'startDate', label: 'Commencé le', type: 'date', value: e.startDate },
+      { name: 'progress', label: "Où j'en suis (minutes)", type: 'number', value: e.progress },
+      { name: 'seen', label: 'Vu', type: 'checkbox', value: e.seen },
+      { name: 'seenDate', label: 'Date de visionnage', type: 'date', value: e.seenDate },
+    ], { del: "Supprimer l'épisode" });
+    if (!v) return;
+    if (v.__action === 'delete') {
+      if (!(await confirmBox(`Supprimer l'épisode ${e.num} ? Les épisodes suivants seront renumérotés.`))) return;
+      it.episodes = it.episodes.filter(x => x !== e).sort((x, y) => x.num - y.num).map((x, k) => ({ ...x, num: k + 1 }));
+    } else {
+      Object.assign(e, v);
+      if (e.seen && !e.seenDate) e.seenDate = today();
+      if (!e.seen) e.seenDate = '';
+    }
+    await saveItem(it); viewCurItem(id);
+  }));
+  $('#done').onclick = () => finishCur(it);
+  $('#drop').onclick = async () => {
+    if (owned) {
+      if (!(await confirmBox(`Retirer « ${it.title} » d'En cours ? Il reste dans ta collection.`, 'Retirer'))) return;
+      it.cur = false; it.curStart = ''; it.curPage = ''; it.curProgress = '';
+      await saveItem(it); location.hash = `#/encours/${tab}`; return;
+    }
+    if (!(await confirmBox(`Retirer « ${it.title}${it.cat === 'serie' ? ' ' + seasonLabel(it.seasonNum, it.seasonName) : ''} » d'En cours ? Il sera supprimé.`))) return;
+    await deleteItem(it.id); location.hash = `#/encours/${tab}`;
+  };
+  const u = await posterUrl(it.id); pb.innerHTML = u ? `<img src="${u}" alt="">` : '';
+}
+
+async function finishCur(it) {
+  const clear = () => { it.cur = false; it.curStart = ''; it.curPage = ''; it.curProgress = ''; };
+  if (it.cat === 'jeu') { (it.completions ||= []).push(today()); clear(); await saveItem(it); toast(`Terminé ! (${it.completions.length} fois)`); location.hash = `#/fiche/${it.id}`; return; }
+  if (it.cat === 'livre') { (it.reads ||= []).push(today()); it.read = true; clear(); await saveItem(it); toast('Livre marqué comme lu'); location.hash = `#/fiche/${it.id}`; return; }
+  if (it.cat === 'film') { (it.views ||= []).push(today()); clear(); await saveItem(it); toast('Visionnage enregistré'); location.hash = `#/fiche/${it.id}`; return; }
+  if (it.cat === 'cinema') {
+    it.list = 'vu'; it.place = 'maison'; it.seenDate = today(); it.rating = it.rating || 0; clear();
+    await saveItem(it); toast('Ajouté à Mon cinéma (Maison)'); location.hash = `#/fiche/${it.id}`; return;
+  }
+  // Série : tous les épisodes doivent être vus
+  const missing = (it.episodes || []).filter(e => !e.seen).map(e => e.num).sort((a, b) => a - b);
+  if (missing.length) { alertBox(`Épisode${missing.length > 1 ? 's' : ''} non vu${missing.length > 1 ? 's' : ''} : ${missing.join(', ')}.`); return; }
+  let serie = (it.serieId && getItem(it.serieId)) || seriesList().find(x => norm(x.title) === norm(it.title));
+  if (!serie || serie.list !== 'vu') { serie = { id: uid(), cat: 'serie', list: 'vu', createdAt: new Date().toISOString(), title: it.title, seasons: [] }; }
+  serie.seasons ||= [];
+  await copyImage(it, serie);
+  let s = serie.seasons.find(x => x.num === +it.seasonNum);
+  if (!s) { s = { id: uid(), num: +it.seasonNum, name: it.seasonName || '', year: it.year || '', episodes: [], views: [] }; serie.seasons.push(s); }
+  if (it.seasonName) s.name = it.seasonName;
+  if (it.year) s.year = it.year;
+  s.episodes = [...(it.episodes || [])].sort((a, b) => a.num - b.num).map(e => ({ num: e.num, title: e.title || '', airDate: e.airDate || '' }));
+  (s.views ||= []).push(maxDate((it.episodes || []).map(e => e.seenDate)) || today());
+  await saveItem(serie);
+  await deleteItem(it.id);
+  toast('Saison ajoutée à Mes séries');
+  location.hash = `#/serie/${serie.id}/saison/${s.id}`;
 }
 
 /* ================= Images ================= */
@@ -901,10 +1389,12 @@ const TMDB = {
     return ((await r.json()).results || []).find(x => x.poster_path) || null;
   },
   // Renvoie { blob, year, genres, title } ou null ; lève une erreur si TMDB est inaccessible
-  async find(title, year, key = state.tmdb, noImage = false) {
+  async find(title, year, key = state.tmdb, noImage = false, kind = 'movie') {
     if (!key) return null;
-    let m = await this.search(title, year, key);
-    if (!m && year) m = await this.search(title, '', key);
+    let m = null;
+    if (kind === 'tv') { m = await this.search(title, year, key, 'tv'); if (!m && year) m = await this.search(title, '', key, 'tv'); }
+    if (!m) m = await this.search(title, kind === 'tv' ? '' : year, key);
+    if (!m && year && kind !== 'tv') m = await this.search(title, '', key);
     if (!m) m = await this.search(title, '', key, 'tv');   // séries (coffrets, saisons…)
     if (!m && /saison|season|intégrale|integrale/i.test(title)) m = await this.search(title.replace(/\s*(saisons?|seasons?|intégrale|integrale)\b.*$/i, ''), '', key, 'tv');
     if (!m) return null;
@@ -971,7 +1461,7 @@ async function downloadImage(url) {
 // Renvoie { src, url, blob?, year?, genres? } ou null ; lève une erreur si le service est inaccessible
 async function findImage(q) {
   const p = PROVIDER[q.cat];
-  if (p === 'tmdb') { const r = await TMDB.find(q.title, q.year, state.tmdb, true); return r && { src: 'tmdb', url: TMDB_IMG + r.posterPath, year: r.year, genres: r.genres }; }
+  if (p === 'tmdb') { const r = await TMDB.find(q.title, q.year, state.tmdb, true, q.cat === 'serie' ? 'tv' : 'movie'); return r && { src: 'tmdb', url: TMDB_IMG + r.posterPath, year: r.year, genres: r.genres }; }
   if (p === 'rawg') return RAWG.find(q.title, q.console);
   if (p === 'ol') return OL.find(q.title, q.isbn);
   return null;
@@ -1238,7 +1728,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.3';
+const APP_VERSION = '2.4';
 (async () => {
   await DB.open();
   await loadAll();
