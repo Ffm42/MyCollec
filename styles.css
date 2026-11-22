@@ -22,14 +22,15 @@ a { color: inherit; text-decoration: none; }
 .content { padding: 14px 14px 110px; max-width: 760px; margin: 0 auto; }
 
 /* Accueil */
-.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.tile { position: relative; background: linear-gradient(160deg, var(--bg3), var(--bg2)); border: 1px solid var(--line); border-radius: 18px; padding: 18px 14px; min-height: 120px; display: flex; flex-direction: column; justify-content: flex-end; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tile { position: relative; background: linear-gradient(160deg, var(--bg3), var(--bg2)); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; min-height: 86px; display: flex; flex-direction: column; justify-content: flex-end; }
 .tile:active { transform: scale(.97); }
-.ti { font-size: 34px; margin-bottom: auto; }
+.ti { font-size: 26px; margin-bottom: auto; }
+.ti .ico-img { height: 22px; }
 .tl { font-weight: 650; font-size: 16px; }
 .tc { position: absolute; top: 14px; right: 14px; color: var(--mu); font-size: 14px; font-variant-numeric: tabular-nums; }
 
-.fab { position: fixed; right: 20px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 60px; height: 60px; border-radius: 50%; background: var(--ac); color: #fff; font-size: 34px; line-height: 58px; text-align: center; box-shadow: 0 8px 24px rgba(124,108,255,.45); z-index: 20; }
+.fab { position: fixed; left: 50%; margin-left: -30px; bottom: calc(22px + env(safe-area-inset-bottom)); width: 60px; height: 60px; border-radius: 50%; background: var(--ac); color: #fff; font-size: 34px; line-height: 58px; text-align: center; box-shadow: 0 8px 24px rgba(124,108,255,.45); z-index: 20; }
 .fab:active { transform: scale(.94); }
 
 /* Choix d'ajout */
@@ -183,3 +184,5 @@ input[type=date].inp { min-height: 46px; }
 .poster-big.small { max-width: 160px; }
 .tabn { opacity: .7; font-weight: 500; margin-left: 2px; }
 .nowrap { white-space: nowrap; align-self: center; }
+.poster-big.small { height: 240px; display: flex; justify-content: center; }
+.poster-big.small img { height: 100%; width: auto; max-width: 100%; object-fit: contain; }

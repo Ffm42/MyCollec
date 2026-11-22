@@ -6,7 +6,7 @@ const CATS = {
   jeu:     { label: 'Mes jeux vidéo',     short: 'Jeux vidéo',      one: 'jeu vidéo',        icon: '🎮' },
   societe: { label: 'Mes jeux de société', short: 'Jeux de société', one: 'jeu de société',  icon: '🎲' },
   livre:   { label: 'Mes livres',         short: 'Livres',          one: 'livre',            icon: '📚' },
-  serie:   { label: 'Mes séries',         short: 'Séries',          one: 'série',            icon: '📺' },
+  serie:   { label: 'Séries',             short: 'Séries',          one: 'série',            icon: '📺' },
   amiibo:  { label: 'Mes Amiibo',         short: 'Amiibo',          one: 'amiibo',           icon: '<img src="icons/amiibo.png" class="ico-img" alt="amiibo">' },
   cinema:  { label: 'Mon cinéma',         short: 'Cinéma',          one: 'film au cinéma',   icon: '🎟️' },
 };
@@ -213,6 +213,7 @@ function toast(msg) {
 
 /* ================= Rendu / routeur ================= */
 const app = () => $('#app');
+const refresh = fn => { state.keepScroll = window.scrollY; return fn(); };
 function page({ title, back = null, right = '', body = '', fab = null }) {
   app().innerHTML = `
     <header class="top">
@@ -222,7 +223,8 @@ function page({ title, back = null, right = '', body = '', fab = null }) {
     </header>
     <main class="content">${body}</main>
     ${fab ? `<a class="fab" href="${fab}" aria-label="Ajouter">+</a>` : ''}`;
-  window.scrollTo(0, 0);
+  const y = state.keepScroll; state.keepScroll = null;
+  window.scrollTo(0, y ?? 0);
 }
 
 async function render() {
@@ -258,10 +260,14 @@ function viewHome() {
     right: '<a href="#/reglages" aria-label="Réglages" class="gear">⚙︎</a>',
     fab: '#/ajouter',
     body: `<div class="tiles">
-      ${OWN_CATS.map(c => tile(`#/liste/${c}`, CATS[c].icon, CATS[c].label, n(c, 'possede'))).join('')}
-      ${tile('#/series', CATS.serie.icon, 'Mes séries', n('serie', 'vu'))}
-      ${tile('#/encours/jeu', '▶️', 'En cours', CUR_CATS.reduce((t, c) => t + curItems(c).length, 0))}
+      ${tile('#/liste/jeu', CATS.jeu.icon, CATS.jeu.label, n('jeu', 'possede'))}
+      ${tile('#/liste/film', CATS.film.icon, CATS.film.label, n('film', 'possede'))}
+      ${tile('#/series', CATS.serie.icon, 'Séries', n('serie', 'vu'))}
+      ${tile('#/liste/livre', CATS.livre.icon, CATS.livre.label, n('livre', 'possede'))}
+      ${tile('#/liste/societe', CATS.societe.icon, CATS.societe.label, n('societe', 'possede'))}
+      ${tile('#/liste/amiibo', CATS.amiibo.icon, CATS.amiibo.label, n('amiibo', 'possede'))}
       ${tile('#/backlog', '🕹️', 'Backlog JV', state.items.filter(i => i.backlog && i.cat === 'jeu' && i.list === 'possede').length)}
+      ${tile('#/encours/jeu', '▶️', 'En cours', CUR_CATS.reduce((t, c) => t + curItems(c).length, 0))}
       ${tile('#/cinema', CATS.cinema.icon, 'Mon cinéma', n('cinema', 'vu'))}
       ${tile('#/envies/cinema', '✨', 'Wishlist', state.items.filter(i => i.list === 'envie').length)}
     </div>`,
@@ -525,7 +531,7 @@ async function viewDetail(id) {
   if ($('#hc')) historyWidget($('#hc'), { label: it.cat === 'jeu' ? 'Terminé' : it.cat === 'livre' ? 'Lectures' : 'Visionnages', list: it[it.cat === 'jeu' ? 'completions' : it.cat === 'livre' ? 'reads' : 'views'] ||= [], allowUndated: it.cat !== 'film',
     onSave: async () => { if (it.cat === 'livre') it.read = it.reads.length > 0; await saveItem(it); } });
   if ($('#hs')) historyWidget($('#hs'), { label: 'Sessions de jeu', list: it.sessions ||= [], onSave: () => saveItem(it) });
-  if ($('#bl')) $('#bl').onclick = async () => { it.backlog = !it.backlog; await saveItem(it); toast(it.backlog ? 'Ajouté au backlog' : 'Retiré du backlog'); viewDetail(it.id); };
+  if ($('#bl')) $('#bl').onclick = async () => { it.backlog = !it.backlog; await saveItem(it); toast(it.backlog ? 'Ajouté au backlog' : 'Retiré du backlog'); refresh(() => viewDetail(it.id)); };
   $('#del').onclick = async () => {
     const msg = it.list === 'envie' ? `Retirer « ${it.title} » de la Wishlist ?` : `Supprimer définitivement « ${it.title} » ?`;
     if (await confirmBox(msg)) { await deleteItem(it.id); toast('Supprimé'); location.hash = backOf(it); }
@@ -900,7 +906,7 @@ const sortedSeasons = s => [...(s.seasons || [])].sort((a, b) => a.num - b.num);
 function viewSeries() {
   const f = state.filters.series ||= { q: '' };
   page({
-    title: 'Mes séries', back: '#/', fab: '#/nouveau/vu/serie',
+    title: 'Séries', back: '#/', fab: '#/nouveau/vu/serie',
     body: `<div class="filters"><input class="inp" type="search" placeholder="Rechercher une série…" id="sq" value="${esc(f.q)}">
       ${PROVIDER.serie ? '<button class="btn ghost block" id="mp">🔎 Récupérer les affiches manquantes</button>' : ''}</div><div id="res"></div>
       <p class="credit">Images : <a href="${PROV_LINK.tmdb}" target="_blank" rel="noopener">TMDB</a></p>`,
@@ -970,7 +976,7 @@ async function viewSerie(id) {
   $('#adds').onclick = async () => {
     const v = await seasonForm(it, null); if (!v) return;
     it.seasons.push({ id: uid(), num: v.num, name: v.name, year: v.year, episodes: newEpisodes(v.count).map(({ num }) => ({ num, title: '', airDate: '' })), views: [] });
-    await saveItem(it); toast('Saison ajoutée'); viewSerie(id);
+    await saveItem(it); toast('Saison ajoutée'); refresh(() => viewSerie(id));
   };
   if ($('#rewall')) $('#rewall').onclick = async () => {
     if (!(await modal({ title: 'Revoir la série', text: `Passer les ${ss.length} saisons de « ${it.title} » en cours ?`, ok: 'Passer en cours' }))) return;
@@ -1007,9 +1013,9 @@ async function viewSeason(id, sid) {
       if (await confirmBox(`Supprimer la saison ${seasonLabel(s.num, s.name)} et son historique ?`)) { it.seasons = it.seasons.filter(x => x !== s); await saveItem(it); toast('Saison supprimée'); location.hash = `#/serie/${id}`; }
       return;
     }
-    Object.assign(s, { num: v.num, name: v.name, year: v.year }); await saveItem(it); viewSeason(id, sid);
+    Object.assign(s, { num: v.num, name: v.name, year: v.year }); await saveItem(it); refresh(() => viewSeason(id, sid));
   };
-  $('#adde').onclick = async () => { s.episodes.push({ num: (eps.length ? eps[eps.length - 1].num : 0) + 1, title: '', airDate: '' }); await saveItem(it); viewSeason(id, sid); };
+  $('#adde').onclick = async () => { s.episodes.push({ num: (eps.length ? eps[eps.length - 1].num : 0) + 1, title: '', airDate: '' }); await saveItem(it); refresh(() => viewSeason(id, sid)); };
   $$('[data-ep]').forEach(a => a.addEventListener('click', async e => {
     e.preventDefault();
     const ep = s.episodes.find(x => x.num === +a.dataset.ep);
@@ -1022,7 +1028,7 @@ async function viewSeason(id, sid) {
       if (!(await confirmBox(`Supprimer l'épisode ${ep.num} ? Les épisodes suivants seront renumérotés.`))) return;
       s.episodes = s.episodes.filter(x => x !== ep).sort((x, y) => x.num - y.num).map((x, k) => ({ ...x, num: k + 1 }));
     } else Object.assign(ep, v);
-    await saveItem(it); viewSeason(id, sid);
+    await saveItem(it); refresh(() => viewSeason(id, sid));
   }));
   $('#rew').onclick = async () => { const cid = await startRewatch(it, s); location.hash = `#/encours/fiche/${cid}`; };
 }
@@ -1118,7 +1124,7 @@ function viewCurAdd(tab) {
       const wl = sortSeriesWish(state.items.filter(i => i.cat === 'serie' && i.list === 'envie' && m(i)));
       h += section('Wishlist', wl.map(i => row(i, seasonLabel(i.seasonNum, i.seasonName), 'wish')));
       const ss = seriesList().filter(m).sort((a, b) => coll.compare(a.title, b.title));
-      h += section('Mes séries (revoir)', ss.map(i => row(i, `${(i.seasons || []).length} saison${(i.seasons || []).length > 1 ? 's' : ''}`, 'serie')));
+      h += section('Séries déjà vues (revoir)', ss.map(i => row(i, `${(i.seasons || []).length} saison${(i.seasons || []).length > 1 ? 's' : ''}`, 'serie')));
     }
     $('#res').innerHTML = h;
     loadThumbs();
@@ -1188,12 +1194,12 @@ async function viewCurItem(id) {
   const pb = $('#pb');
   $$('[data-save]').forEach(inp => inp.addEventListener('change', async () => { it[inp.dataset.save] = inp.value.trim(); await saveItem(it); toast('Enregistré'); }));
   if ($('#hs')) historyWidget($('#hs'), { label: 'Sessions de jeu', list: it.sessions ||= [], onSave: () => saveItem(it) });
-  if ($('#sess')) $('#sess').onclick = async () => { (it.sessions ||= []).push(today()); await saveItem(it); viewCurItem(id); };
-  if ($('#adde')) $('#adde').onclick = async () => { const eps = it.episodes ||= []; eps.push(...newEpisodes(1, (eps.length ? Math.max(...eps.map(e => e.num)) : 0) + 1)); await saveItem(it); viewCurItem(id); };
+  if ($('#sess')) $('#sess').onclick = async () => { (it.sessions ||= []).push(today()); await saveItem(it); refresh(() => viewCurItem(id)); };
+  if ($('#adde')) $('#adde').onclick = async () => { const eps = it.episodes ||= []; eps.push(...newEpisodes(1, (eps.length ? Math.max(...eps.map(e => e.num)) : 0) + 1)); await saveItem(it); refresh(() => viewCurItem(id)); };
   $$('[data-seen]').forEach(c => c.addEventListener('change', async () => {
     const e = it.episodes.find(x => x.num === +c.dataset.seen);
     e.seen = c.checked; e.seenDate = c.checked ? (e.seenDate || today()) : ''; if (c.checked) e.progress = '';
-    await saveItem(it); viewCurItem(id);
+    await saveItem(it); refresh(() => viewCurItem(id));
   }));
   $$('[data-ep]').forEach(a => a.addEventListener('click', async ev => {
     ev.preventDefault();
@@ -1215,7 +1221,7 @@ async function viewCurItem(id) {
       if (e.seen && !e.seenDate) e.seenDate = today();
       if (!e.seen) e.seenDate = '';
     }
-    await saveItem(it); viewCurItem(id);
+    await saveItem(it); refresh(() => viewCurItem(id));
   }));
   $('#done').onclick = () => finishCur(it);
   $('#drop').onclick = async () => {
@@ -1254,7 +1260,7 @@ async function finishCur(it) {
   (s.views ||= []).push(maxDate((it.episodes || []).map(e => e.seenDate)) || today());
   await saveItem(serie);
   await deleteItem(it.id);
-  toast('Saison ajoutée à Mes séries');
+  toast('Saison ajoutée aux Séries');
   location.hash = `#/serie/${serie.id}/saison/${s.id}`;
 }
 
@@ -1728,7 +1734,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.4';
+const APP_VERSION = '2.4.1';
 (async () => {
   await DB.open();
   await loadAll();
