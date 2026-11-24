@@ -1046,7 +1046,7 @@ async function startRewatch(serie, s) {
 }
 
 /* ================= En cours ================= */
-const CUR_CATS = ['jeu', 'livre', 'serie', 'film'];
+const CUR_CATS = ['serie', 'jeu', 'livre', 'film'];
 const CUR_LABEL = { jeu: 'Jeux vidéo', livre: 'Livres', serie: 'Séries', film: 'Films' };
 function curItems(tab) {
   const l = state.items.filter(i => tab === 'film' ? ((i.cat === 'film' && i.list === 'possede' && i.cur) || (i.cat === 'cinema' && i.list === 'encours'))
@@ -1734,7 +1734,7 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.4.2';
 (async () => {
   await DB.open();
   await loadAll();
