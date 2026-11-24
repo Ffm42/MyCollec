@@ -227,7 +227,7 @@ function page({ title, back = null, right = '', body = '', fab = null }) {
   window.scrollTo(0, y ?? 0);
 }
 
-async function render() {
+async function route() {
   const parts = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   const [v, a, b, c] = parts;
   try {
@@ -246,9 +246,25 @@ async function render() {
     if (v === 'serie') return b === 'saison' ? viewSeason(a, c) : viewSerie(a);
     if (v === 'encours' && a === 'fiche') return viewCurItem(b);
     if (v === 'encours' && a === 'ajouter') return viewCurAdd(b);
-    if (v === 'encours') return viewCur(CUR_CATS.includes(a) ? a : 'jeu');
+    if (v === 'encours') return viewCur(CUR_CATS.includes(a) ? a : CUR_CATS[0]);
   } catch (e) { console.error(e); alertBox('Erreur : ' + e.message); }
   location.hash = '#/';
+}
+
+// Mémorise la position de défilement de chaque page et la restaure quand on y revient
+// (sauf en venant de l'accueil, et jamais pour les formulaires)
+const scrollPos = {};
+let curHash = location.hash;
+function onHashChange() {
+  scrollPos[curHash] = window.scrollY;
+  const from = curHash;
+  curHash = location.hash;
+  render(from);
+}
+async function render(from = null) {
+  await route();
+  const y = scrollPos[location.hash];
+  if (y && from !== null && !/^#?\/?$/.test(from) && !/^#\/(nouveau|edition)\//.test(location.hash)) window.scrollTo(0, y);
 }
 
 /* ---------- Accueil ---------- */
@@ -267,7 +283,7 @@ function viewHome() {
       ${tile('#/liste/societe', CATS.societe.icon, CATS.societe.label, n('societe', 'possede'))}
       ${tile('#/liste/amiibo', CATS.amiibo.icon, CATS.amiibo.label, n('amiibo', 'possede'))}
       ${tile('#/backlog', '🕹️', 'Backlog JV', state.items.filter(i => i.backlog && i.cat === 'jeu' && i.list === 'possede').length)}
-      ${tile('#/encours/jeu', '▶️', 'En cours', CUR_CATS.reduce((t, c) => t + curItems(c).length, 0))}
+      ${tile(`#/encours/${CUR_CATS[0]}`, '▶️', 'En cours', CUR_CATS.reduce((t, c) => t + curItems(c).length, 0))}
       ${tile('#/cinema', CATS.cinema.icon, 'Mon cinéma', n('cinema', 'vu'))}
       ${tile('#/envies/cinema', '✨', 'Wishlist', state.items.filter(i => i.list === 'envie').length)}
     </div>`,
@@ -1089,7 +1105,7 @@ async function moveWishToCur(it) {
 }
 
 function viewCurAdd(tab) {
-  if (!CUR_CATS.includes(tab)) { location.hash = '#/encours/jeu'; return; }
+  if (!CUR_CATS.includes(tab)) { location.hash = `#/encours/${CUR_CATS[0]}`; return; }
   const f = state.filters['cur-' + tab] ||= { q: '', console: '', done: '' };
   const row = (i, sub, act) => `<a class="row cine" href="#" data-act="${act}" data-id="${i.id}">
     <span class="thumb ${i.posterSrc === 'rawg' ? 'wide' : ''}" data-poster="${i.id}" data-ph="${(CATS[i.cat] || CATS.serie).icon}"></span>
@@ -1153,7 +1169,7 @@ function viewCurAdd(tab) {
 async function viewCurItem(id) {
   const it = getItem(id);
   const isCur = it && ((it.list === 'possede' && it.cur) || it.list === 'encours');
-  if (!isCur) { location.hash = it ? `#/fiche/${id}` : '#/encours/jeu'; return; }
+  if (!isCur) { location.hash = it ? `#/fiche/${id}` : `#/encours/${CUR_CATS[0]}`; return; }
   const tab = curTab(it);
   const owned = it.list === 'possede';
   let h = '';
@@ -1734,12 +1750,12 @@ async function importData(file) {
 }
 
 /* ================= Démarrage ================= */
-const APP_VERSION = '2.4.2';
+const APP_VERSION = '2.5';
 (async () => {
   await DB.open();
   await loadAll();
   navigator.storage?.persist?.();
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', onHashChange);
   render();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
